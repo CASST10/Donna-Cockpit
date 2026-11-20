@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.21</title>
+<title>⚖️ Donna Jura v4.22</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -2687,7 +2687,11 @@ var qrcode = function() {
     <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
       <div>
         <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:4px">GitHub Token (ghp_...)</label>
-        <input type="password" id="gist-token" placeholder="ghp_xxxxxxxxxxxx" oninput="try{localStorage.setItem('dj_gist_token',this.value.trim())}catch(e){}" onchange="try{localStorage.setItem('dj_gist_token',this.value.trim())}catch(e){}" onpaste="setTimeout(()=>{try{localStorage.setItem('dj_gist_token',this.value.trim())}catch(e){}},10)">
+        <div style="display:flex;gap:6px">
+        <input type="password" id="gist-token" placeholder="Token oder Kopplungs-Link" style="flex:1" oninput="djTokenInput(this)" onchange="djTokenInput(this)" onpaste="setTimeout(()=>djTokenInput(this),10)">
+        <button class="btn btn-secondary" onclick="djPasteToken()" title="Token oder Kopplungs-Link aus der Zwischenablage einfügen" style="white-space:nowrap">📋 Einfügen</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">Hier kannst du auch den ganzen Kopplungs-Link einfügen (vom anderen Gerät: «📱 Neues Gerät» → «📋 Link kopieren»).</div>
       </div>
     </div>
     <input type="hidden" id="gist-id">
@@ -2700,7 +2704,7 @@ var qrcode = function() {
     <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">
       ⏱ Einmalig Token eingeben → Sync läuft automatisch alle ~15 Sek<br>
       📱 Weiteres Gerät: «Neues Gerät (QR)» — Token wird per QR übertragen<br>
-      🍎 iOS Home-Screen: eigenes Pairing via QR nötig (separater Speicher)
+      🍎 iPad/iPhone Home-Bildschirm: eigener Speicher → dort Link kopieren und oben mit «📋 Einfügen» einfügen
     </div>
     <div style="margin-top:10px">
       <button class="btn btn-secondary" onclick="gistDiag()" style="font-size:11px;width:100%">🔍 Verbindung testen</button>
@@ -8984,13 +8988,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.21
+//  DONNA JURA — GIST SYNC  v4.22
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.21';
+const DJ_VERSION = '4.22';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9640,6 +9644,49 @@ function djMaybeShowInstall(force){
 }
 // iOS hat kein beforeinstallprompt → nach dem Laden selbst anzeigen
 window.addEventListener('load', () => setTimeout(() => { if(_djIsIOS()) djMaybeShowInstall(); }, 1500));
+
+// ── Token / Kopplungs-Link einfügen (wichtig für iOS Home-Bildschirm-App) ──
+function djParsePair(val){
+  val=(val||'').trim();
+  const m=val.match(/pair=([A-Za-z0-9+/=_%-]+)/);
+  if(m){
+    try{
+      const d=JSON.parse(atob(decodeURIComponent(m[1]).replace(/-/g,'+').replace(/_/g,'/')));
+      if(d&&d.t) return {t:d.t,g:d.g||''};
+    }catch(e){}
+    return null;
+  }
+  return val?{t:val,g:''}:null;
+}
+function djTokenInput(el){
+  const p=djParsePair(el.value);
+  if(!p) return;
+  try{
+    localStorage.setItem('dj_gist_token',p.t);
+    if(p.g){ localStorage.setItem('dj_gist_id',p.g); const gi=document.getElementById('gist-id'); if(gi) gi.value=p.g; }
+  }catch(e){}
+  if(p.g||el.value.trim()!==p.t){ el.value=p.t; gistShowStatus('✅ Kopplungs-Link erkannt — jetzt «☁ Speichern & Sync»','var(--accent2)'); }
+}
+async function djPasteToken(){
+  const el=document.getElementById('gist-token');
+  try{
+    const txt=await navigator.clipboard.readText();
+    if(!txt){ gistShowStatus('⚠ Zwischenablage ist leer','var(--warn)'); return; }
+    el.value=txt; djTokenInput(el);
+    if(!/pair=/.test(txt)) gistShowStatus('✅ Token eingefügt — jetzt «☁ Speichern & Sync»','var(--accent2)');
+  }catch(e){
+    gistShowStatus('⚠ Einfügen nicht erlaubt — lange ins Feld tippen → «Einfügen»','var(--warn)');
+    el.focus();
+  }
+}
+// iOS-Home-Bildschirm-App ohne Token: einmal auf das Koppeln hinweisen
+window.addEventListener('load',()=>setTimeout(()=>{
+  const standalone=window.navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;
+  if(!standalone||_gToken()) return;
+  try{ if(sessionStorage.getItem('dj_pair_hint')) return; sessionStorage.setItem('dj_pair_hint','1'); }catch(e){}
+  openGistSettings();
+  gistShowStatus('🍎 Diese App hat einen eigenen Speicher. Auf einem verbundenen Gerät «📱 Neues Gerät» → «📋 Link kopieren», dann hier «📋 Einfügen».','var(--accent)');
+},1200));
 
 // ── PWA Service Worker + Update-Detection ────────────────────────
 if('serviceWorker' in navigator){
