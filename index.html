@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.19</title>
+<title>⚖️ Donna Jura v4.20</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -8979,13 +8979,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.19
+//  DONNA JURA — GIST SYNC  v4.20
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.19';
+const DJ_VERSION = '4.20';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9547,6 +9547,94 @@ function openSyncPairingModal(){
     setTimeout(()=>gistInit(), 500);
   } catch(e){ /* invalid fragment — ignore */ }
 })();
+
+// ── Install-Popup (PWA) ──────────────────────────────────────────
+let _djInstallEvt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();               // eigenes Popup statt Browser-Leiste
+  _djInstallEvt = e;
+  djMaybeShowInstall();
+});
+window.addEventListener('appinstalled', () => {
+  _djInstallEvt = null;
+  document.getElementById('dj-install-pop')?.remove();
+  try{ localStorage.setItem('dj_install_never','1'); }catch(e){}
+  notify('✅ Donna Jura installiert!');
+});
+
+function _djIsStandalone(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function _djIsIOS(){
+  const ua = navigator.userAgent;
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function djMaybeShowInstall(force){
+  if(_djIsStandalone()) return;
+  if(!force){
+    try{
+      if(localStorage.getItem('dj_install_never')) return;
+      const later = +localStorage.getItem('dj_install_later') || 0;
+      if(Date.now() - later < 3*24*3600*1000) return;   // «Später» = 3 Tage Ruhe
+    }catch(e){}
+  }
+  const ios = _djIsIOS();
+  if(!ios && !_djInstallEvt) return;   // Browser bietet keine Installation an
+  if(document.getElementById('dj-install-pop')) return;
+
+  const ov = document.createElement('div');
+  ov.id = 'dj-install-pop';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;padding:16px';
+  const body = ios ? `
+      <div style="font-size:13px;color:#e6edf3;line-height:1.7;margin:4px 0 14px">
+        1. Unten in Safari auf <b>Teilen</b> <span style="display:inline-block;border:1px solid #58a6ff;border-radius:4px;padding:0 5px;color:#58a6ff">⬆︎</span> tippen<br>
+        2. <b>«Zum Home-Bildschirm»</b> wählen<br>
+        3. Oben rechts <b>«Hinzufügen»</b>
+      </div>
+      <div style="font-size:11px;color:#8b949e;margin-bottom:14px">Nur in Safari möglich. Danach Sync neu koppeln (eigener Speicher).</div>
+      <div style="display:flex;gap:8px">
+        <button id="dj-inst-later" style="flex:1;padding:9px;background:#58a6ff;border:none;border-radius:6px;color:#0d1117;font-weight:700;cursor:pointer;font-size:13px">Verstanden</button>
+        <button id="dj-inst-never" style="padding:9px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;cursor:pointer;font-size:12px">Nicht mehr zeigen</button>
+      </div>` : `
+      <div style="font-size:13px;color:#e6edf3;line-height:1.6;margin:4px 0 14px">
+        Als App installieren: startet wie eine normale App, ohne Browserleiste, und funktioniert auch offline.
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="dj-inst-go" style="flex:1;padding:9px;background:#58a6ff;border:none;border-radius:6px;color:#0d1117;font-weight:700;cursor:pointer;font-size:13px">📲 Installieren</button>
+        <button id="dj-inst-later" style="padding:9px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#e6edf3;cursor:pointer;font-size:12px">Später</button>
+        <button id="dj-inst-never" style="padding:9px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;cursor:pointer;font-size:12px">Nie</button>
+      </div>`;
+  ov.innerHTML = `
+    <div style="width:100%;max-width:420px;background:#161b22;border:1px solid rgba(88,166,255,.4);border-radius:14px;padding:18px;box-shadow:0 8px 32px rgba(0,0,0,.6)">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+        <img src="icon-192.png" alt="" style="width:44px;height:44px;border-radius:10px">
+        <div>
+          <div style="font-weight:700;font-size:15px;color:#e6edf3">Donna Jura installieren</div>
+          <div style="font-size:11px;color:#8b949e">${ios ? 'Auf den Home-Bildschirm legen' : 'Kostenlos · ohne App Store'}</div>
+        </div>
+      </div>${body}
+    </div>`;
+  document.body.appendChild(ov);
+
+  const close = () => ov.remove();
+  ov.addEventListener('click', e => { if(e.target === ov){ close(); } });
+  ov.querySelector('#dj-inst-later').onclick = () => { try{ localStorage.setItem('dj_install_later', Date.now()); }catch(e){} close(); };
+  ov.querySelector('#dj-inst-never').onclick = () => { try{ localStorage.setItem('dj_install_never','1'); }catch(e){} close(); };
+  const go = ov.querySelector('#dj-inst-go');
+  if(go) go.onclick = async () => {
+    close();
+    if(!_djInstallEvt) return;
+    _djInstallEvt.prompt();
+    try{
+      const r = await _djInstallEvt.userChoice;
+      if(r.outcome !== 'accepted'){ try{ localStorage.setItem('dj_install_later', Date.now()); }catch(e){} }
+    }catch(e){}
+    _djInstallEvt = null;
+  };
+}
+// iOS hat kein beforeinstallprompt → nach dem Laden selbst anzeigen
+window.addEventListener('load', () => setTimeout(() => { if(_djIsIOS()) djMaybeShowInstall(); }, 1500));
 
 // ── PWA Service Worker + Update-Detection ────────────────────────
 if('serviceWorker' in navigator){
