@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.22</title>
+<title>⚖️ Donna Jura v4.23</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -8988,13 +8988,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.22
+//  DONNA JURA — GIST SYNC  v4.23
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.22';
+const DJ_VERSION = '4.23';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9027,6 +9027,22 @@ let _gistWritingTimeout = null;
 function _gToken(){ try{ return localStorage.getItem('dj_gist_token')||''; }catch(e){ return '';} }
 function _gId(){    try{ return localStorage.getItem('dj_gist_id')||'';    }catch(e){ return '';} }
 function _gPomoId(){ try{ return localStorage.getItem('dj_gist_pomo_id')||''; }catch(e){ return '';} }
+
+// ── Ping-Pong-Schutz & Rate-Limit-Schutz ─────────────────────────
+let _gistApplyingRemote=false, _gistBlockedUntil=0;
+const _G_UI_KEYS=new Set(['currentTab','currentHorizon','lastRollover','pomoSubject','pomoFocusMins','pomoBreakMins','pomoGoal','todayEndTime','todayEndTimeDate','zenParking','dayNote','streak','lastStudyDate','totalMinutes','mpCollapsed']);
+function _gStable(v){ if(Array.isArray(v)) return '['+v.map(_gStable).join(',')+']'; if(v&&typeof v==='object') return '{'+Object.keys(v).sort().filter(k=>v[k]!==undefined).map(k=>JSON.stringify(k)+':'+_gStable(v[k])).join(',')+'}'; return JSON.stringify(v); }
+// Nur echte Inhalte vergleichen (Listen/Objekte), keine geräteeigenen UI-Werte
+function _gContentSig(st){ const o={}; Object.keys(st||{}).forEach(k=>{ if(_G_UI_KEYS.has(k)) return; const v=st[k]; if(v&&typeof v==='object') o[k]=v; }); return _gStable(o); }
+function _gBlocked(){ return Date.now()<_gistBlockedUntil; }
+function _gRateCheck(resp){
+  if((resp.status===403||resp.status===429) && (resp.headers.get('x-ratelimit-remaining')==='0'||resp.status===429)){
+    const reset=parseInt(resp.headers.get('x-ratelimit-reset')||'0',10)*1000;
+    _gistBlockedUntil = reset>Date.now()? reset+5000 : Date.now()+15*60000;
+    const t=new Date(_gistBlockedUntil).toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
+    throw new Error('GitHub-Limit erreicht — Sync pausiert bis ca. '+t+' (Daten bleiben lokal gespeichert)');
+  }
+}
 
 function _gHeaders(etag){
   const h = {
@@ -9100,6 +9116,7 @@ function _gMerge(local, remote){
 async function gistPushNow(){
   const token = _gToken();
   if(!token){ gistShowStatus('⚠ Kein Token','var(--warn)'); return false; }
+  if(_gBlocked()){ gistShowBadge('error'); gistShowStatus('⏸ GitHub-Limit erreicht — Sync pausiert bis '+new Date(_gistBlockedUntil).toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}),'var(--warn)'); return false; }
 
   _gistWriting = true;
   clearTimeout(_gistWritingTimeout);
@@ -9115,6 +9132,7 @@ async function gistPushNow(){
   try {
     gistShowBadge('syncing');
     const resp = await fetch(url,{ method, body:JSON.stringify(payload), headers:_gHeaders() });
+    _gRateCheck(resp);
     if(!resp.ok){ const j=await resp.json().catch(()=>{}); throw new Error((j&&j.message)||resp.status); }
     const json = await resp.json();
     // Store gist ID for future
@@ -9156,16 +9174,19 @@ async function gistPullNow(force){
   const token=_gToken(), gistId=_gId();
   if(!token||!gistId) return;
   if(_gistWriting && !force) return; // just wrote — skip echo
+  if(_gBlocked()) return;
 
   try {
     const resp = await fetch(`https://api.github.com/gists/${gistId}`, {
       headers: _gHeaders(force ? null : _gistEtag)
     });
     if(resp.status===304){ /* unchanged — ETag matched */ return; }
+    _gRateCheck(resp);
     if(!resp.ok){ const j=await resp.json().catch(()=>{}); throw new Error((j&&j.message)||resp.status); }
 
     const json = await resp.json();
     _gistEtag = resp.headers.get('ETag') || _gistEtag;
+    try{ _gApplyPomoJson(json); }catch(e){}   // Pomodoro kommt im selben Abruf mit
 
     const raw = json.files['donna-jura-data.json']?.content;
     if(!raw) return;
@@ -9178,6 +9199,8 @@ async function gistPullNow(force){
     const remoteState = remote.state || remote; // compat
     const mergedState = _gMerge(S, remoteState);
     S = mergedState;
+    // Nur hochladen, wenn dieses Gerät wirklich etwas hat, das im Gist fehlt
+    const _needPush = _gContentSig(mergedState)!==_gContentSig(remoteState);
 
     // Merge MP state
     if(remote.mpState){
@@ -9205,15 +9228,16 @@ async function gistPullNow(force){
       const scrollTop = window.scrollY;
       const scrollEl = document.getElementById('main-scroll') || document.documentElement;
       const prevScrollEl = scrollEl.scrollTop;
-      save(); // persist merged state
+      _gistApplyingRemote=true; try{ save(); } finally{ _gistApplyingRemote=false; } // persist merged state (ohne Auto-Push)
       renderAll();
       requestAnimationFrame(()=>{
         scrollEl.scrollTop = prevScrollEl;
         window.scrollTo(0, scrollTop);
       });
     } else {
-      save(); // at least persist
+      _gistApplyingRemote=true; try{ save(); } finally{ _gistApplyingRemote=false; } // at least persist
     }
+    if(_needPush) gistSchedulePush();
 
     _gistLastSync = new Date();
     _gistSyncError = null;
@@ -9222,6 +9246,7 @@ async function gistPullNow(force){
   } catch(e){
     _gistSyncError = e.message;
     gistShowBadge('error');
+    if(_gBlocked()) gistShowStatus('⏸ '+e.message,'var(--warn)');
     console.warn('Gist pull error:', e.message);
   }
 }
@@ -9241,26 +9266,19 @@ async function gistPushPomo(){
       phase: PT.phase||'work', block: PT.block||0
     })}}
   };
+  if(_gBlocked()) return;
   try {
-    await fetch(`https://api.github.com/gists/${gistId}`,{
+    const resp = await fetch(`https://api.github.com/gists/${gistId}`,{
       method:'PATCH', body:JSON.stringify(payload), headers:_gHeaders()
     });
+    _gRateCheck(resp);
   } catch(e){}
 }
 
-async function gistPullPomo(){
-  const token=_gToken(), gistId=_gId();
-  if(!token||!gistId||PT.running) return; // own timer running → don't override
-
+async function gistPullPomo(){ return gistPullNow(false); }
+function _gApplyPomoJson(json){
+  if(PT.running) return; // own timer running → don't override
   try {
-    const resp = await fetch(`https://api.github.com/gists/${gistId}`,{
-      headers: _gHeaders(_gistPomoEtag)
-    });
-    if(resp.status===304) return;
-    if(!resp.ok) return;
-    const json = await resp.json();
-    _gistPomoEtag = resp.headers.get('ETag')||_gistPomoEtag;
-
     const raw = json.files['donna-jura-pomo.json']?.content;
     if(!raw) return;
     const r = JSON.parse(raw);
@@ -9286,11 +9304,11 @@ async function gistPullPomo(){
 // ── POLLING ──────────────────────────────────────────────────────
 function gistStartPolling(){
   if(_gistPollTimer) clearInterval(_gistPollTimer);
-  _gistPollTimer = setInterval(()=>gistPullNow(false), 15000);
-  // Pomodoro polls faster if another device has timer running
-  if(_gistPomoTimer) clearInterval(_gistPomoTimer);
-  _gistPomoTimer = setInterval(()=>gistPullPomo(), 5000);
+  // Ein einziger Abruf alle 20s (Daten + Pomodoro), nur wenn die App sichtbar ist
+  _gistPollTimer = setInterval(()=>{ if(!document.hidden) gistPullNow(false); }, 20000);
+  if(_gistPomoTimer){ clearInterval(_gistPomoTimer); _gistPomoTimer=null; }
 }
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && _gistReady) gistPullNow(false); });
 
 function gistStopPolling(){
   clearInterval(_gistPollTimer); _gistPollTimer=null;
@@ -9719,6 +9737,7 @@ function showSwUpdateBanner(){
 const _origSave = save;
 window.save = function(){
   _origSave();
+  if(_gistApplyingRemote) return;
   gistSchedulePush();
 };
 const _origMpSave = mpSave;
