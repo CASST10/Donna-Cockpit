@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.25</title>
+<title>⚖️ Donna Jura v4.26</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -7286,7 +7286,29 @@ function openDayEnd(targetDate){
     if(subs.length) groupedDone.push({task:null, parentLabel:t.text, parentSubject:t.subject, subs});
   });
 
-  const totalDone = groupedDone.reduce((a,g)=>a+(g.task?1:0)+g.subs.length, 0);
+  // Masterplan: heute abgehakte Aufgaben (+ heute geplante, noch offene)
+  const mpDoneToday=[], mpOpenToday=[];
+  try{
+    const ms=mpState();
+    const rn=t=>{ const r=S.mpRenames&&S.mpRenames[t.id]; return r?{...t,text:r.text||t.text,badge:r.badge||t.badge,hidden:r.hidden}:t; };
+    const all=[];
+    for(const wk of Object.values(MP_WEEKS)) for(const d of wk.days) for(const t of d.tasks) all.push({t:rn(t),planned:ms.moves[t.id]||d.date});
+    for(const t of (S.mpExtraTasks||[])) all.push({t:rn(t),planned:ms.moves[t.id]||t.date});
+    for(const {t,planned} of all){
+      if(t.hidden) continue;
+      if(ms.done[t.id]){
+        if(ms.doneAt[t.id]===today || (!ms.doneAt[t.id] && planned===today)) mpDoneToday.push(t);
+      } else if(planned===today && !t.locked && t.type!=='fixed'){
+        mpOpenToday.push(t);
+      }
+    }
+  }catch(e){ console.warn('Masterplan im Tagesabschluss:',e); }
+  const mpSubj=t=>{ const x=(t.type||'')+' '+(t.badge||'')+' '+(t.text||'');
+    if(t.type==='pr'||/\bPR\b|Privatrecht/i.test(x)) return 'pr_gesamt';
+    if(t.type==='oeff'||t.type==='oe'||/Öff|ÖR\b/i.test(x)) return 'oeff_gesamt';
+    return null; };
+
+  const totalDone = groupedDone.reduce((a,g)=>a+(g.task?1:0)+g.subs.length, 0) + mpDoneToday.length;
 
   const pomoToday = (S.pomodoros||[]).filter(p=>p.date===today);
   const minsToday = pomoToday.reduce((a,p)=>a+p.mins, 0);
@@ -7309,7 +7331,7 @@ function openDayEnd(targetDate){
     donnaQuote = `Solid day. ${minsToday}min study time${totalDone>0?`, ${totalDone} tasks done`:''} — I've seen worse. Push a little harder tomorrow.`;
   } else if(score>=30){
     donnaMood='📋';
-    donnaQuote = `Okay. Not exactly a showstopper.${pendingTodos.length>0?` ${pendingTodos.length} tasks still open.`:''} But you showed up — that counts. Write down what comes first tomorrow.`;
+    donnaQuote = `Okay. Not exactly a showstopper.${(pendingTodos.length+mpOpenToday.length)>0?` ${pendingTodos.length+mpOpenToday.length} tasks still open.`:''} But you showed up — that counts. Write down what comes first tomorrow.`;
   } else {
     donnaMood='☕';
     donnaQuote = `We don't talk about today. Just write down what you want to do tomorrow and start with that. No excuses.`;
@@ -7317,6 +7339,7 @@ function openDayEnd(targetDate){
 
   // Subject-task map
   const subjTasks={};
+  mpDoneToday.forEach(t=>{ const sj=mpSubj(t); if(sj){ (subjTasks[sj]=subjTasks[sj]||[]).push({text:t.text,isSub:false}); } });
   groupedDone.forEach(g=>{
     const subj=g.task?.subject||g.parentSubject||null;
     if(subj){if(!subjTasks[subj])subjTasks[subj]=[];if(g.task)subjTasks[subj].push({text:g.task.text,isSub:false});g.subs.forEach(s=>{if(!s.subject||s.subject===subj)subjTasks[subj].push({text:s.text,isSub:true});});}
@@ -7388,7 +7411,7 @@ function openDayEnd(targetDate){
       </div>
       <div style="background:var(--bg3);border-radius:8px;padding:10px 6px">
         <div style="font-size:10px;color:var(--warn);font-weight:600;margin-bottom:2px">Offen</div>
-        <div style="font-size:22px;font-weight:800;color:${pendingTodos.length?'var(--warn)':'var(--text2)'}">${pendingTodos.length}</div>
+        <div style="font-size:22px;font-weight:800;color:${(pendingTodos.length+mpOpenToday.length)?'var(--warn)':'var(--text2)'}">${pendingTodos.length+mpOpenToday.length}</div>
       </div>
     </div>
 
@@ -7397,7 +7420,13 @@ function openDayEnd(targetDate){
       <div>
         <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">📋 Heute erledigt</div>
         <div style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:2px">
-          ${groupedDone.length ? renderDoneTree(S.todos, 0) || '<div class="muted" style="font-size:12px;padding:8px 0">Heute noch keine Aufgaben abgehakt</div>' : '<div class="muted" style="font-size:12px;padding:8px 0">Heute noch keine Aufgaben abgehakt</div>'}
+          ${(groupedDone.length?renderDoneTree(S.todos, 0):'') || (mpDoneToday.length?'':'<div class="muted" style="font-size:12px;padding:8px 0">Heute noch keine Aufgaben abgehakt</div>')}
+          ${mpDoneToday.length?`<div style="font-size:10px;color:var(--accent2);font-weight:600;padding:6px 0 2px">🗺 Masterplan (${mpDoneToday.length})</div>${mpDoneToday.map(t=>{ const sj=SUBJECTS[mpSubj(t)]; return `<div style="display:flex;align-items:center;gap:5px;padding:1px 5px 1px 4px;border-radius:2px;background:rgba(63,185,80,.05)">
+            <span style="color:var(--accent2);font-size:11px;flex-shrink:0">✓</span>
+            <span style="font-size:11px;font-weight:500;color:var(--text2);text-decoration:line-through;opacity:.7;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.badge?t.badge+' · ':''}${t.text}</span>
+            ${sj?`<span style="font-size:9px;color:${sj.tc};flex-shrink:0">${sj.name.replace(' (gesamt)','')}</span>`:''}
+          </div>`; }).join('')}`:''}
+          ${mpOpenToday.length?`<div style="font-size:10px;color:var(--warn);font-weight:600;padding:8px 0 3px;border-top:1px solid var(--border);margin-top:4px">○ Masterplan noch offen</div>${mpOpenToday.map(t=>`<div style="display:flex;align-items:center;gap:6px;padding:2px 7px;border-radius:3px"><span style="color:var(--warn);font-size:10px;opacity:.6">○</span><span style="font-size:11px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.badge?t.badge+' · ':''}${t.text}</span></div>`).join('')}`:''}
           ${pendingTodos.length?`<div style="font-size:10px;color:var(--warn);font-weight:600;padding:8px 0 3px;border-top:1px solid var(--border);margin-top:4px">○ Noch offen</div>${pendingTodos.map(t=>`<div style="display:flex;align-items:center;gap:6px;padding:2px 7px;border-radius:3px"><span style="color:var(--warn);font-size:10px;opacity:.6">○</span><span style="font-size:11px;opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.text}</span></div>`).join('')}`:''}
         </div>
       </div>
@@ -8255,6 +8284,7 @@ function mpState(){
   // Unvollständige Daten (z.B. nach Sync/Import) reparieren
   if(!s.done||typeof s.done!=='object') s.done={};
   if(!s.moves||typeof s.moves!=='object') s.moves={};
+  if(!s.doneAt||typeof s.doneAt!=='object') s.doneAt={};   // id → Datum (YYYY-MM-DD) des Abhakens
   return s;
 }
 function mpSave(s){try{localStorage.setItem('donna_mp_v1',JSON.stringify(s));}catch(e){}}
@@ -8628,6 +8658,8 @@ function mpSyncFromTraining(key, idx, isDone){
       // Exercise: use the already-mutated steps of this exact entry
       newDone = entrySteps.length>0 ? chipSteps.every(si=>entrySteps[si]) : isDone;
     }
+    if(newDone && !s.done[chip.id]) s.doneAt[chip.id] = ds(new Date());
+    if(!newDone) delete s.doneAt[chip.id];
     s.done[chip.id] = newDone;
     changed=true;
   };
@@ -8641,6 +8673,7 @@ function mpSyncFromTraining(key, idx, isDone){
 function mpToggleDone(id){
   const s=mpState();
   s.done[id]=!s.done[id];
+  if(s.done[id]) s.doneAt[id]=ds(new Date()); else delete s.doneAt[id];
   mpSave(s);
   mpSyncToTraining(id, s.done[id]);
   renderAll();
@@ -9023,13 +9056,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.25
+//  DONNA JURA — GIST SYNC  v4.26
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.25';
+const DJ_VERSION = '4.26';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9244,7 +9277,7 @@ async function gistPullNow(force){
         const localMp  = JSON.parse(localStorage.getItem('donna_mp_v1')||'{}');
         const remoteMp = remote.mpState;
         // MP done flags: union (once checked, stays checked)
-        const mergedMp = Object.assign({}, localMp, remoteMp, { done: Object.assign({}, remoteMp.done||{}, localMp.done||{}), moves: Object.assign({}, localMp.moves||{}, remoteMp.moves||{}) });
+        const mergedMp = Object.assign({}, localMp, remoteMp, { done: Object.assign({}, remoteMp.done||{}, localMp.done||{}), moves: Object.assign({}, localMp.moves||{}, remoteMp.moves||{}), doneAt: Object.assign({}, remoteMp.doneAt||{}, localMp.doneAt||{}) });
         // Newest timestamp wins per chip
         if(localMp.done && remoteMp.done){
           for(const id of Object.keys(remoteMp.done)){
