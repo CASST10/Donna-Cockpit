@@ -264,6 +264,7 @@ textarea{resize:vertical}
 .ring-wrap{position:relative;width:48px;height:48px;flex-shrink:0}
 .ring-wrap svg{transform:rotate(-90deg)}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 </head>
 <body>
 <!-- TOP NAV -->
@@ -7132,126 +7133,35 @@ async function gistSync(fromModal){
 async function gistPush(fromModal){ await gistSync(fromModal); }
 async function gistPull(fromModal){ await gistPullNow(true); }
 
-// ── Inline QR-Code Generator (kein externes Script) ──────────────
-// Minimal QR encoder: numeric/alphanumeric/byte mode, version 1-10, ECC M
-// Erzeugt ein <canvas>-Element mit dem QR-Code
+// ── QR-Code via qrcode-generator (Kazuhiko Arase, MIT) ───────────
+// Uses the library loaded in <head> via jsDelivr
 function _djQR(text, size){
-  // Reed-Solomon & QR matrix via built-in approach using an iframe trick:
-  // We use a data-URL SVG approach since full QR is complex.
-  // Instead: encode as a simple grid via the Google Charts API (no tracking, just image):
-  // Actually - use pure JS QR. Minimal implementation:
   const c = document.createElement('canvas');
   c.width = size; c.height = size;
   const ctx = c.getContext('2d');
-
-  // Use qrcode-generator logic (ported minimal version)
-  // For simplicity and reliability: render via an img pointing to a QR service
-  // but since we can't use external services, we do a proper inline impl.
-
-  // ---- Minimal QR (only what we need: byte mode, version auto, ECC L) ----
-  function _qr(str){
-    // We'll use a well-known pure-JS QR library approach
-    // This is a compact port of Kazuhiko Arase's qrcode-generator
-    const PAD0=0xEC,PAD1=0x11;
-    function _gf(){ const t=[];t[0]=1;for(let i=1;i<256;i++)t[i]=(t[i-1]<<1)^(t[i-1]>=128?285:0);return t;}
-    const GF=_gf();
-    const GFL=new Uint8Array(256);
-    for(let i=0;i<255;i++) GFL[GF[i]]=i;
-    function mul(a,b){return a===0||b===0?0:GF[(GFL[a]+GFL[b])%255];}
-    function poly(e,v){const p=new Uint8Array(e+1);p[0]=1;for(let i=0;i<e;i++){const q=new Uint8Array(e+1);for(let j=0;j<e;j++)q[j+1]=p[j];for(let j=0;j<e;j++)q[j]^=mul(p[j],GF[v+i]);for(let j=0;j<=e;j++)p[j]=q[j];}return p;}
-    function rs(d,n){const p=poly(n,0);const r=new Uint8Array(n);for(let i=0;i<d.length;i++){const f=d[i]^r[0];for(let j=0;j<n-1;j++)r[j]=r[j+1]^mul(p[n-1-j],f);r[n-1]=mul(p[0],f);}return r;}
-
-    // Version/ECC table [ver][ecc=1(M)]: [totalBytes, ecBytesPerBlock, blocks]
-    const VT=[[0],[0],[44,16,1],[70,22,1],[100,26,1],[134,18,2],[172,24,2],[196,16,4],[242,22,2],[292,22,3],[346,26,4]];
-    const bytes=[...new TextEncoder().encode(str)];
-    let ver=1;
-    while(ver<=10&&VT[ver][0]-VT[ver][1]*VT[ver][2]<bytes.length+2) ver++;
-    if(ver>10) ver=10;
-    const [tot,ecb,blk]=VT[ver];
-    const dbc=Math.floor((tot-ecb*blk)/blk);
-
-    // Build data bits
-    const bits=[];
-    function ab(v,l){for(let i=l-1;i>=0;i--)bits.push((v>>i)&1);}
-    ab(4,4); ab(bytes.length,8);
-    for(const b of bytes) ab(b,8);
-    ab(0,4);
-    while(bits.length%8) bits.push(0);
-    const data=[];
-    for(let i=0;i<bits.length;i+=8){let v=0;for(let j=0;j<8;j++)v=(v<<1)|bits[i+j];data.push(v);}
-    while(data.length<tot-ecb*blk){data.push(data.length%2?PAD1:PAD0);}
-
-    // Interleave blocks
-    const blocks=[];
-    for(let i=0;i<blk;i++) blocks.push(data.slice(i*dbc,(i+1)*dbc));
-    const eblocks=blocks.map(b=>rs(b,ecb));
-    const final=[];
-    for(let i=0;i<dbc;i++) for(const b of blocks) final.push(b[i]);
-    for(let i=0;i<ecb;i++) for(const e of eblocks) final.push(e[i]);
-
-    // Build matrix
-    const n=ver*4+17;
-    const M=Array.from({length:n},()=>new Int8Array(n).fill(-1));
-    const R=Array.from({length:n},()=>new Uint8Array(n));
-    function sq(r,c,s,v){for(let i=r;i<r+s;i++)for(let j=c;j<c+s;j++){M[i][j]=v;R[i][j]=1;}}
-    function finder(r,c){sq(r,c,7,1);sq(r+1,c+1,5,0);sq(r+2,c+2,3,1);for(let i=-1;i<=7;i++){if(r+i>=0&&r+i<n){if(c-1>=0){M[r+i][c-1]=0;R[r+i][c-1]=1;}if(c+7<n){M[r+i][c+7]=0;R[r+i][c+7]=1;}}if(c+i>=0&&c+i<n){if(r-1>=0){M[r-1][c+i]=0;R[r-1][c+i]=1;}if(r+7<n){M[r+7][c+i]=0;R[r+7][c+i]=1;}}}}
-    finder(0,0);finder(0,n-7);finder(n-7,0);
-    // Timing
-    for(let i=8;i<n-8;i++){M[6][i]=M[i][6]=i%2?0:1;R[6][i]=R[i][6]=1;}
-    // Dark module
-    M[4*ver+9][8]=1;R[4*ver+9][8]=1;
-    // Format placeholder
-    [[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8],
-     [8,n-1],[8,n-2],[8,n-3],[8,n-4],[8,n-5],[8,n-6],[8,n-7],[n-8,8],[n-7,8],[n-6,8],[n-5,8],[n-4,8],[n-3,8],[n-2,8],[n-1,8]]
-    .forEach(([r,c])=>{M[r][c]=0;R[r][c]=1;});
-    // Alignment (ver>=2)
-    if(ver>=2){const ap=[[],...Array.from({length:10},(_,i)=>[6,Math.round(6+(n-13)/Math.max(1,ver-1)*(i<ver-1?i+1:0)+6)].filter((_,j)=>j<2||ver>2))];
-    const AL=[[],[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50]];
-    if(ver<=10)for(const r of AL[ver])for(const cc of AL[ver])if(M[r][cc]===-1){sq(r-2,cc-2,5,1);sq(r-1,cc-1,3,0);M[r][cc]=1;R[r][cc]=1;for(let i=r-2;i<=r+2;i++)for(let j=cc-2;j<=cc+2;j++)R[i][j]=1;}}
-    // Place data
-    let bit=0;
-    const fb=final.flatMap(b=>[7,6,5,4,3,2,1,0].map(i=>(b>>i)&1));
-    const masks=[(r,c)=>(r+c)%2===0,(r,c)=>r%2===0,(r,c)=>c%3===0,(r,c)=>(r+c)%3===0,
-                 (r,c)=>(Math.floor(r/2)+Math.floor(c/3))%2===0,(r,c)=>(r*c)%2+(r*c)%3===0,
-                 (r,c)=>((r*c)%2+(r*c)%3)%2===0,(r,c)=>((r+c)%2+(r*c)%3)%2===0];
-    const best=masks.map((mf,mi)=>{
-      const T=M.map(r=>r.slice());
-      let col=n-1,up=true;
-      for(let x=0;x<bit;x++) x; // reset
-      let b2=0;
-      for(let x=col;x>=0;x-=2){if(x===6)x--;for(let dy=0;dy<n;dy++){const y=up?n-1-dy:dy;for(let dx=0;dx<2;dx++){const c2=x-dx;if(!R[y][c2]&&b2<fb.length){T[y][c2]=fb[b2]^(mf(y,c2)?1:0);b2++;}}}}
-      // Penalty score
-      let pen=0;
-      for(let r=0;r<n;r++){let run=1;for(let c=1;c<n;c++){if(T[r][c]===T[r][c-1])run++;else{if(run>=5)pen+=run-2;run=1;}}if(run>=5)pen+=run-2;}
-      return {mi,pen};
-    }).sort((a,b)=>a.pen-b.pen)[0].mi;
-
-    const mf=masks[best];
-    let col2=n-1,up2=true,bpos=0;
-    for(let x=col2;x>=0;x-=2){if(x===6)x--;for(let dy=0;dy<n;dy++){const y=up2?n-1-dy:dy;for(let dx=0;dx<2;dx++){const c=x-dx;if(!R[y][c]&&bpos<fb.length){M[y][c]=fb[bpos]^(mf(y,c)?1:0);bpos++;}else if(!R[y][c]){M[y][c]=mf(y,c)?0:0;}}}if(x-2!==6)(up2=!up2);}
-
-    // Format string (ECC M = 00, mask = best)
-    const FMT=[0x5412,0x5125,0x5E7C,0x5B4B,0x45F9,0x40CE,0x4F97,0x4AA0,
-               0x77C4,0x72F3,0x7DAA,0x789D,0x662F,0x6318,0x6C41,0x6976];
-    const fmt=FMT[best]; // ECC M (bits 13-14 = 00) + mask
-    [[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]].forEach(([r,c],i)=>{M[r][c]=(fmt>>(i))&1;});
-    [[8,n-1],[8,n-2],[8,n-3],[8,n-4],[8,n-5],[8,n-6],[8,n-7]].forEach(([r,c],i)=>{M[r][c]=(fmt>>(14-i))&1;});
-    [[n-7,8],[n-6,8],[n-5,8],[n-4,8],[n-3,8],[n-2,8],[n-1,8]].forEach(([r,c],i)=>{M[r][c]=(fmt>>(7+i))&1;});
-    return {M,n};
-  }
-
-  try{
-    const {M,n}=_qr(text);
-    const pad=4, cell=Math.floor((size-pad*2)/n);
-    ctx.fillStyle='#fff'; ctx.fillRect(0,0,size,size);
-    ctx.fillStyle='#000';
-    for(let r=0;r<n;r++) for(let cc=0;cc<n;cc++) if(M[r][cc]===1)
-      ctx.fillRect(pad+cc*cell,pad+r*cell,cell,cell);
-  }catch(e){
-    // Fallback: Google Charts QR (opens in new tab is fine — just show img)
-    ctx.fillStyle='#fff'; ctx.fillRect(0,0,size,size);
-    ctx.fillStyle='#999'; ctx.font='11px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('QR: Link kopieren',size/2,size/2);
+  try {
+    // qrcode-generator API: qrcode(typeNumber, errorCorrectionLevel)
+    // typeNumber 0 = auto-detect version
+    const qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    const n = qr.getModuleCount();
+    const cell = Math.floor(size / (n + 8));
+    const pad = Math.floor((size - cell * n) / 2);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#000';
+    for (let r = 0; r < n; r++) {
+      for (let col = 0; col < n; col++) {
+        if (qr.isDark(r, col)) {
+          ctx.fillRect(pad + col * cell, pad + r * cell, cell, cell);
+        }
+      }
+    }
+  } catch(e) {
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#999'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('QR: Link kopieren', size/2, size/2);
   }
   return c;
 }
