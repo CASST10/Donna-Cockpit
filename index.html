@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.20</title>
+<title>⚖️ Donna Jura v4.21</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -8210,8 +8210,13 @@ const MP_WEEKS = {
 
 // mp state: { done: {id:bool}, moves: {id:date} }
 function mpState(){
-  try{const r=localStorage.getItem('donna_mp_v1');if(r)return JSON.parse(r);}catch(e){}
-  return {done:{},moves:{}};
+  let s=null;
+  try{const r=localStorage.getItem('donna_mp_v1');if(r)s=JSON.parse(r);}catch(e){}
+  if(!s||typeof s!=='object'||Array.isArray(s)) s={};
+  // Unvollständige Daten (z.B. nach Sync/Import) reparieren
+  if(!s.done||typeof s.done!=='object') s.done={};
+  if(!s.moves||typeof s.moves!=='object') s.moves={};
+  return s;
 }
 function mpSave(s){try{localStorage.setItem('donna_mp_v1',JSON.stringify(s));}catch(e){}}
 
@@ -8979,13 +8984,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.20
+//  DONNA JURA — GIST SYNC  v4.21
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.20';
+const DJ_VERSION = '4.21';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9176,7 +9181,7 @@ async function gistPullNow(force){
         const localMp  = JSON.parse(localStorage.getItem('donna_mp_v1')||'{}');
         const remoteMp = remote.mpState;
         // MP done flags: union (once checked, stays checked)
-        const mergedMp = Object.assign({}, remoteMp, { done: Object.assign({}, remoteMp.done||{}, localMp.done||{}) });
+        const mergedMp = Object.assign({}, localMp, remoteMp, { done: Object.assign({}, remoteMp.done||{}, localMp.done||{}), moves: Object.assign({}, localMp.moves||{}, remoteMp.moves||{}) });
         // Newest timestamp wins per chip
         if(localMp.done && remoteMp.done){
           for(const id of Object.keys(remoteMp.done)){

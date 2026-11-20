@@ -1,6 +1,6 @@
-// Donna Jura Service Worker v4.20
+// Donna Jura Service Worker v4.21
 // Versionsnummer ändern = Update-Banner erscheint auf allen Geräten
-const CACHE = 'donna-jura-v4.20';
+const CACHE = 'donna-jura-v4.21';
 const ASSETS = [
   './',
   './index.html',
