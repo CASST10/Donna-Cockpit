@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.26</title>
+<title>⚖️ Donna Jura v4.27</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -9056,13 +9056,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.26
+//  DONNA JURA — GIST SYNC  v4.27
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.26';
+const DJ_VERSION = '4.27';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9103,7 +9103,17 @@ function _gStable(v){ if(Array.isArray(v)) return '['+v.map(_gStable).join(',')+
 // Nur echte Inhalte vergleichen (Listen/Objekte), keine geräteeigenen UI-Werte
 function _gContentSig(st){ const o={}; Object.keys(st||{}).forEach(k=>{ if(_G_UI_KEYS.has(k)) return; const v=st[k]; if(v&&typeof v==='object') o[k]=v; }); return _gStable(o); }
 function _gBlocked(){ return Date.now()<_gistBlockedUntil; }
+// Signatur des ganzen synchronisierten Inhalts (Daten + Masterplan), ohne UI-Werte wie aktueller Tab
+function _gFullSig(){ let mp={}; try{ const m=JSON.parse(localStorage.getItem('donna_mp_v1')||'{}'); mp={done:m.done||{},moves:m.moves||{},doneAt:m.doneAt||{}}; }catch(e){} return _gContentSig(S)+'|'+_gStable(mp); }
+let _gistLastPushedSig=null, _gistRateRemaining=null, _gistRateLimit=null, _gistLastUserAct=Date.now();
+['pointerdown','keydown','touchstart','wheel'].forEach(ev=>document.addEventListener(ev,()=>{ _gistLastUserAct=Date.now(); },{passive:true,capture:true}));
+function _gNoteRate(resp){
+  const r=resp.headers.get('x-ratelimit-remaining'), l=resp.headers.get('x-ratelimit-limit');
+  if(r!=null&&r!=='') _gistRateRemaining=parseInt(r,10);
+  if(l!=null&&l!=='') _gistRateLimit=parseInt(l,10);
+}
 function _gRateCheck(resp){
+  _gNoteRate(resp);
   if((resp.status===403||resp.status===429) && (resp.headers.get('x-ratelimit-remaining')==='0'||resp.status===429)){
     const reset=parseInt(resp.headers.get('x-ratelimit-reset')||'0',10)*1000;
     _gistBlockedUntil = reset>Date.now()? reset+5000 : Date.now()+15*60000;
@@ -9210,6 +9220,7 @@ async function gistPushNow(){
       const gi=document.getElementById('gist-id'); if(gi) gi.value=json.id;
     }
     _gistEtag = resp.headers.get('ETag') || null;
+    _gistLastPushedSig = _gFullSig();
     _gistLastPush = Date.now();
     _gistLastSync = new Date();
     _gistSyncError = null;
@@ -9230,13 +9241,25 @@ async function gistPushNow(){
 
 // Debounced push: called from save() and mpSave()
 let _gistDebouncePush = null;
+// Änderungen 15s sammeln (mehrere Häkchen = 1 Upload) und nur hochladen,
+// wenn sich der Inhalt wirklich geändert hat (Tab-Wechsel o.ä. lösen keinen Upload mehr aus).
+let _gistPushPending=false;
 function gistSchedulePush(){
   clearTimeout(_gistDebouncePush);
-  _gistDebouncePush = setTimeout(async()=>{
-    if(!_gToken()||!_gId()) return; // not configured — silent
-    await gistPushNow();
-  }, 3000);
+  _gistPushPending=true;
+  _gistDebouncePush = setTimeout(_gistFlushPush, 15000);
 }
+async function _gistFlushPush(){
+  clearTimeout(_gistDebouncePush);
+  if(!_gistPushPending) return;
+  _gistPushPending=false;
+  if(!_gToken()||!_gId()) return; // not configured — silent
+  if(_gistLastPushedSig!==null && _gFullSig()===_gistLastPushedSig) return; // nichts Neues
+  await gistPushNow();
+}
+// Beim Verlassen/Wegklicken sofort hochladen, damit nichts verloren geht
+document.addEventListener('visibilitychange',()=>{ if(document.hidden && _gistPushPending) _gistFlushPush(); });
+window.addEventListener('pagehide',()=>{ if(_gistPushPending) _gistFlushPush(); });
 
 // ── PULL (ETag conditional GET) ──────────────────────────────────
 async function gistPullNow(force){
@@ -9249,6 +9272,7 @@ async function gistPullNow(force){
     const resp = await fetch(`https://api.github.com/gists/${gistId}`, {
       headers: _gHeaders(force ? null : _gistEtag)
     });
+    _gNoteRate(resp);
     if(resp.status===304){ /* unchanged — ETag matched */ return; }
     _gRateCheck(resp);
     if(!resp.ok){ const j=await resp.json().catch(()=>{}); throw new Error((j&&j.message)||resp.status); }
@@ -9306,7 +9330,7 @@ async function gistPullNow(force){
     } else {
       _gistApplyingRemote=true; try{ save(); } finally{ _gistApplyingRemote=false; } // at least persist
     }
-    if(_needPush) gistSchedulePush();
+    if(_needPush) gistSchedulePush(); else _gistLastPushedSig = _gFullSig();
 
     _gistLastSync = new Date();
     _gistSyncError = null;
@@ -9430,9 +9454,17 @@ function _gSchedulePoll(){
   _gPollTO=setTimeout(async()=>{
     if(!document.hidden) await gistPullNow(false);
     _gSchedulePoll();
-  }, _pomoTimerActive()?8000:20000);
+  }, _gPollDelay());
 }
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden && _gistReady) gistPullNow(false); });
+// Wie oft nachfragen?  Timer läuft: 15s · normal: 60s · seit 10 Min. keine Bedienung: 5 Min.
+// Wird das GitHub-Kontingent knapp (< 1000 übrig): immer 5 Min.
+function _gPollDelay(){
+  if(_gistRateRemaining!=null && _gistRateRemaining<1000) return 300000;
+  if(Date.now()-_gistLastUserAct > 10*60000) return 300000;
+  if(_pomoTimerActive()) return 15000;
+  return 60000;
+}
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && _gistReady){ gistPullNow(false); _gSchedulePoll(); } });
 
 function gistStopPolling(){
   clearTimeout(_gPollTO); _gistPollTimer=null;
@@ -9543,6 +9575,8 @@ async function gistDiag(){
       });
       const j3 = await r3.json();
       if(r3.ok) lines.push(`Gist abrufbar: ✅ "${j3.description||'(kein Titel)'}"`);
+      _gNoteRate(r3);
+      if(_gistRateRemaining!=null) lines.push(`GitHub-Kontingent: ${_gistRateRemaining<1000?'⚠️':'✅'} noch ${_gistRateRemaining} von ${_gistRateLimit||5000} Anfragen diese Stunde (alle Geräte & Apps zusammen)`);
       else lines.push(`Gist abrufbar: ❌ ${r3.status} – ${j3.message}`);
     } catch(e) {
       lines.push(`Gist abrufbar: ❌ ${e.message}`);
