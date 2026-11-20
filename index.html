@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.24</title>
+<title>⚖️ Donna Jura v4.25</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -5281,30 +5281,39 @@ function renderPomodoro() {
           </select>
         `:`
           <div style="display:flex;gap:5px;margin-bottom:5px">
-            <select id="sw-exam-group" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:3px" onchange="window.SW_examGroup=this.value;renderAll()">
-              <option value="pr_gesamt" ${(window.SW_examGroup||'pr_gesamt')==='pr_gesamt'?'selected':''}>⚖️ PR</option>
-              <option value="oeff_gesamt" ${window.SW_examGroup==='oeff_gesamt'?'selected':''}>🏛️ Öff.R.</option>
+            <select id="sw-exam-group" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:3px" onchange="window.SW_examGroup=this.value;window.SW_examName='';renderAll()">
+              <option value="pr_gesamt" ${(window.SW_examGroup||'pr_gesamt')==='pr_gesamt'?'selected':''}>⚖️ Privatrecht</option>
+              <option value="oeff_gesamt" ${window.SW_examGroup==='oeff_gesamt'?'selected':''}>🏛️ Öff. Recht</option>
             </select>
-            <select id="sw-exam-sem" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:3px" onchange="window.SW_examSem=this.value;renderAll()">
-              ${(S.oldExamSemesters||['HS26','FS26','Sonstiges']).map(sem=>`<option value="${sem}" ${(window.SW_examSem||S.oldExamSemesters[0]||'HS26')===sem?'selected':''}>${sem}</option>`).join('')}
-            </select>
-            <select id="sw-exam-type" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:3px" onchange="window.SW_examType=this.value;renderAll()">
+            <select id="sw-exam-type" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:3px" onchange="window.SW_examType=this.value;window.SW_examName='';window.SW_examSem='';renderAll()">
               <option value="ueb" ${(window.SW_examType||'ueb')==='ueb'?'selected':''}>📝 Übung</option>
-              <option value="alt" ${window.SW_examType==='alt'?'selected':''}>📋 Alt-Prüfung</option>
+              <option value="alt" ${window.SW_examType==='alt'?'selected':''}>📋 Altprüfung</option>
             </select>
           </div>
           ${(()=>{
             const grp=(window.SW_examGroup||'pr_gesamt').replace('_gesamt','');
-            const sem=window.SW_examSem||(S.oldExamSemesters&&S.oldExamSemesters[0])||'HS26';
-            const key=grp+'_'+sem;
             const type=window.SW_examType||'ueb';
-            const existing=type==='ueb'?(S.exercises[key]||[]):(S.oldExams[key]||[]);
-            return existing.length>0?`<select id="sw-exam-existing" style="width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:4px 7px;margin-bottom:4px" onchange="window.SW_examName=this.value;const inp=document.getElementById('sw-exam-name-inp');if(inp&&this.value)inp.value=this.value">
-              <option value="">— Bestehende auswählen —</option>
-              ${existing.map(e=>`<option value="${e.text}" ${window.SW_examName===e.text?'selected':''}>${e.text}</option>`).join('')}
-            </select>`:'';
+            const src=type==='ueb'?(S.exercises||{}):(S.oldExams||{});
+            const cur=_swCurSem(type);
+            const groups=_swSems(type).map(sem=>({sem,list:src[grp+'_'+sem]||[]})).filter(g=>g.list.length);
+            const esc=t=>String(t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+            const label=(e)=>{
+              const st=Array.isArray(e.steps)?e.steps.filter(Boolean).length+'/'+e.steps.length:'';
+              const done=(e.done||(Array.isArray(e.steps)&&e.steps.length&&e.steps.every(Boolean)))?'✓ ':'';
+              return done+e.text+(st?' · '+st:'');
+            };
+            return groups.length?`<select id="sw-exam-existing" style="width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:4px 7px;margin-bottom:4px" onchange="swPickExam(this.value)">
+              <option value="">— ${type==='ueb'?'Übung':'Altprüfung'} auswählen —</option>
+              ${groups.map(g=>`<optgroup label="${esc(g.sem)}">${g.list.map(e=>`<option value="${esc(g.sem+'||'+e.text)}" ${g.sem===cur&&window.SW_examName===e.text?'selected':''}>${esc(label(e))}</option>`).join('')}</optgroup>`).join('')}
+            </select>`:`<div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:4px">Noch keine ${type==='ueb'?'Übungen':'Altprüfungen'} vorhanden — unten neu anlegen.</div>`;
           })()}
-          <input id="sw-exam-name-inp" placeholder="Oder neuen Namen eingeben" value="${window.SW_examName||''}" style="width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:4px 7px" onchange="window.SW_examName=this.value" oninput="window.SW_examName=this.value">
+          <div style="display:flex;gap:5px;margin-bottom:4px;align-items:center">
+            <span style="font-size:10px;color:rgba(255,255,255,.4);white-space:nowrap">oder neu in</span>
+            <select id="sw-exam-sem" style="flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:3px" onchange="window.SW_examSem=this.value;window.SW_examName='';renderAll()">
+              ${_swSems(window.SW_examType||'ueb').map(sem=>`<option value="${sem}" ${_swCurSem(window.SW_examType||'ueb')===sem?'selected':''}>${sem}</option>`).join('')}
+            </select>
+          </div>
+          <input id="sw-exam-name-inp" placeholder="Name einer neuen Übung/Prüfung" value="${window.SW_examName||''}" style="width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:#fff;font-size:11px;padding:4px 7px" onchange="window.SW_examName=this.value" oninput="window.SW_examName=this.value">
         `}
       </div>
 
@@ -5623,6 +5632,7 @@ function swToggle() {
         startTime:`${String(start.getHours()).padStart(2,'0')}:${String(start.getMinutes()).padStart(2,'0')}`,
         endTime:`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`});
       S.totalMinutes=(S.totalMinutes||0)+segMins;
+      window.SW_loggedSecs = window.SW_secs||0;   // bis hier gespeichert
       save();
       notify('💾 '+segMins+'min auto-gespeichert');
     }
@@ -5663,6 +5673,7 @@ function swReset() {
   window.SW_secs_base = 0;
   window.SW_start = null;
   window.SW_saved = false;
+  window.SW_loggedSecs = 0;
   renderAll();
 }
 
@@ -5703,8 +5714,8 @@ if(!window._swStandbyListenerAdded) {
 }
 
 function swSaveSimple() {
-  const mins = Math.round((window.SW_secs||0)/60);
-  if(mins<1){notify('Noch keine Minute gemessen');return;}
+  const mins = _swUnloggedMins();
+  if(mins<1){ if(Math.round((window.SW_secs||0)/60)<1) notify('Noch keine Minute gemessen'); else notify('✅ Zeit war bereits gespeichert'); return; }
   const subj = window.SW_subjSel || document.getElementById('sw-pomo-subj')?.value || S.pomoSubject||'sonstiges';
   S.pomodoros = S.pomodoros||[];
   const now = new Date();
@@ -5735,9 +5746,13 @@ function swSaveAndFinish() {
   swReset();
 }
 
+function _swUnloggedMins(){
+  if(window.SW_follower) return 0;   // anderes Gerät zählt die Zeit
+  return Math.round(Math.max(0,(window.SW_secs||0)-(window.SW_loggedSecs||0))/60);
+}
 function swSave() {
-  const mins = Math.round((window.SW_secs||0)/60);
-  if(mins<1){notify('Noch keine Minute gemessen');return;}
+  const mins = _swUnloggedMins();
+  if(mins<1){ return; }
   const subj = S.pomoSubject||'sonstiges';
   S.pomodoros = S.pomodoros||[];
   const now = new Date();
@@ -5752,11 +5767,27 @@ function swSave() {
   renderAll();
 }
 
+// Semester-Listen wie in der Trainingsansicht
+function _swSems(type){
+  if(type==='ueb') return ['HS26','FS26','Sonstiges'];
+  return (S.oldExamSemesters||[]).slice().reverse();   // neueste zuerst
+}
+function _swCurSem(type){
+  const list=_swSems(type);
+  return list.includes(window.SW_examSem)?window.SW_examSem:(list[0]||'Sonstiges');
+}
+function swPickExam(v){
+  if(!v){ window.SW_examName=''; renderAll(); return; }
+  const i=v.indexOf('||');
+  window.SW_examSem=v.slice(0,i); window.SW_examName=v.slice(i+2);
+  renderAll();
+  if(typeof _pomoPushNow==='function') _pomoPushNow();
+}
 function swSaveToExam() {
   const name = (window.SW_examName||document.getElementById('sw-exam-name-inp')?.value||'').trim();
   const group = window.SW_examGroup||document.getElementById('sw-exam-group')?.value||'pr_gesamt';
-  const sem = window.SW_examSem||document.getElementById('sw-exam-sem')?.value||(S.oldExamSemesters&&S.oldExamSemesters[0])||'HS26';
   const type = window.SW_examType||document.getElementById('sw-exam-type')?.value||'ueb';
+  const sem = _swCurSem(type);
   const mins = Math.round((window.SW_secs||0)/60);
   if(!name){notify('❌ Bitte Namen eingeben');return;}
   // Save to exercises or oldExams
@@ -5784,7 +5815,7 @@ function swSaveToExam() {
       existing.sessions.push({mins, date:ds(new Date())});
       notify('✅ '+mins+'min zu "'+name+'" hinzugefügt');
     } else {
-      S.oldExams[key].push({text:name, done:false,
+      S.oldExams[key].push({text:name, done:false, steps:[false,false,false], isExam:true,
         sessions:[{mins, date:ds(new Date())}]});
       notify('✅ "'+name+'" → Alt-Prüfungen '+sem);
     }
@@ -8992,13 +9023,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.24
+//  DONNA JURA — GIST SYNC  v4.25
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.24';
+const DJ_VERSION = '4.25';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9285,7 +9316,8 @@ function _pomoSnap(){
   return { v:2, device:DEV_ID, ts:Date.now(), mode: window.SW_mode?'sw':'pomo',
     running:!!PT.running, secsLeft:PT.secs||0, isBreak:!!PT.isBreak, blocks:PT.blocks||0,
     subject:S.pomoSubject||'',
-    swRunning:!!window.SW_running, swSecs:window.SW_secs||0, swSubj:window.SW_subjSel||'' };
+    swRunning:!!window.SW_running, swSecs:window.SW_secs||0, swSubj:window.SW_subjSel||'',
+    swSave:window.SW_saveMode||'pomo', swGroup:window.SW_examGroup||'', swType:window.SW_examType||'', swSem:window.SW_examSem||'', swName:window.SW_examName||'' };
 }
 function _pomoTimerActive(){ return !!(PT.running||window.SW_running); }
 function _gApplyPomoJson(json){
@@ -9325,6 +9357,7 @@ function _gApplyPomoJson(json){
       if(r.swRunning){
         if(ownRunning) _origSwToggle();               // eigenes Segment speichern
         window.SW_secs_base = r.swSecs;
+        window.SW_loggedSecs = r.swSecs;
         window.SW_start = new Date(r.ts);
         window.SW_secs = r.swSecs + el;
         window.SW_running = true; window.SW_follower = true; window.SW_saved = false;
@@ -9335,9 +9368,10 @@ function _gApplyPomoJson(json){
           if(window.SW_timer) clearInterval(window.SW_timer);
           window.SW_running = false; window.SW_start = null;
         }
-        window.SW_secs = r.swSecs; window.SW_secs_base = r.swSecs; window.SW_follower = false;
+        window.SW_secs = r.swSecs; window.SW_secs_base = r.swSecs; window.SW_loggedSecs = r.swSecs; window.SW_follower = false;
       }
       if(r.swSubj) window.SW_subjSel = r.swSubj;
+      if(r.swSave){ window.SW_saveMode=r.swSave; window.SW_examGroup=r.swGroup||window.SW_examGroup; window.SW_examType=r.swType||window.SW_examType; window.SW_examSem=r.swSem||window.SW_examSem; window.SW_examName=r.swName; }
     }
     if(r.mode) window.SW_mode = (r.mode === 'sw');
   } finally { _pomoApplying = false; }
