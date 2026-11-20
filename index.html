@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.23</title>
+<title>⚖️ Donna Jura v4.24</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -5634,6 +5634,12 @@ function swToggle() {
     window.SW_secs_base = window.SW_secs || 0;
     window.SW_start = new Date();
     window.SW_saved = false;
+    _swStartInterval();
+  }
+  renderAll();
+}
+function _swStartInterval(){
+    if(window.SW_timer) clearInterval(window.SW_timer);
     window.SW_timer = setInterval(()=>{
       const now = new Date();
       if(!window.SW_start) return;
@@ -5648,8 +5654,6 @@ function swToggle() {
       const pw = document.getElementById('pw-time');
       if(pw) pw.textContent = h>0?`${h}:${m}:${s}`:`${m}:${s}`;
     }, 1000);
-  }
-  renderAll();
 }
 
 function swReset() {
@@ -5833,7 +5837,7 @@ function pomTick() {
   const now = new Date();
 
   // Safety: if running but startTime lost (should not happen), restore it
-  if(!PT.startTime) {
+  if(!PT.startTime && !PT.follower) {
     PT.startTime = new Date(now.getTime() - ((S.pomoFocusMins||45)*60 - PT.secs) * 1000);
   }
 
@@ -8988,13 +8992,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.23
+//  DONNA JURA — GIST SYNC  v4.24
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.23';
+const DJ_VERSION = '4.24';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9072,8 +9076,9 @@ function _gMerge(local, remote){
       if(Array.isArray(rv) && Array.isArray(lv)){
         if(key==='pomodoros'){
           // Union by date+subject+startTime — never lose entries
-          const seen = new Set(lv.map(p=>p.date+'|'+p.subject+'|'+(p.startTime||p.mins)));
-          const extra = rv.filter(p=>!seen.has(p.date+'|'+p.subject+'|'+(p.startTime||p.mins)));
+          const pk = p=>[p.date,p.subject,p.startTime||'',p.endTime||'',p.mins].join('|');
+          const seen = new Set(lv.map(pk));
+          const extra = rv.filter(p=>!seen.has(pk(p)));
           out[key] = [...lv, ...extra].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
         } else {
           // For all other arrays: keep whichever has MORE entries
@@ -9260,11 +9265,7 @@ async function gistPushPomo(){
   const token=_gToken(), gistId=_gId();
   if(!token||!gistId) return;
   const payload = {
-    files: { 'donna-jura-pomo.json': { content: JSON.stringify({
-      device: DEV_ID, ts: Date.now(),
-      running: PT.running, secsLeft: PT.secs,
-      phase: PT.phase||'work', block: PT.block||0
-    })}}
+    files: { 'donna-jura-pomo.json': { content: JSON.stringify(_pomoSnap()) }}
   };
   if(_gBlocked()) return;
   try {
@@ -9276,42 +9277,98 @@ async function gistPushPomo(){
 }
 
 async function gistPullPomo(){ return gistPullNow(false); }
+// ── Timer-Sync (Pomodoro-Countdown + Stoppuhr) ──────────────────
+// Ein Gerät "besitzt" den laufenden Timer und speichert die Lernzeit;
+// die anderen zeigen ihn nur an (PT.follower / SW_follower) → keine doppelte Zeit.
+let _pomoApplying=false;
+function _pomoSnap(){
+  return { v:2, device:DEV_ID, ts:Date.now(), mode: window.SW_mode?'sw':'pomo',
+    running:!!PT.running, secsLeft:PT.secs||0, isBreak:!!PT.isBreak, blocks:PT.blocks||0,
+    subject:S.pomoSubject||'',
+    swRunning:!!window.SW_running, swSecs:window.SW_secs||0, swSubj:window.SW_subjSel||'' };
+}
+function _pomoTimerActive(){ return !!(PT.running||window.SW_running); }
 function _gApplyPomoJson(json){
-  if(PT.running) return; // own timer running → don't override
+  const raw = json.files['donna-jura-pomo.json']?.content;
+  if(!raw) return;
+  let r; try{ r=JSON.parse(raw); }catch(e){ return; }
+  if(!r || r.device===DEV_ID) return;            // eigenes Echo
+  if(!r.ts || r.ts <= _pomoLastRemote) return;   // nichts Neues
+  _pomoLastRemote = r.ts;
+  const el = Math.max(0, Math.floor((Date.now()-r.ts)/1000));
+  _pomoApplying = true;
   try {
-    const raw = json.files['donna-jura-pomo.json']?.content;
-    if(!raw) return;
-    const r = JSON.parse(raw);
-    if(r.device===DEV_ID) return; // own echo
-    if(!r.ts || r.ts <= _pomoLastRemote) return;
-    _pomoLastRemote = r.ts;
-
-    if(r.running && r.secsLeft > 0){
-      const elapsed = Math.floor((Date.now()-r.ts)/1000);
-      const secs = Math.max(0, r.secsLeft - elapsed);
-      if(secs > 0){
-        PT.secs = secs;
-        PT.running = true;
+    // ── Countdown ──
+    if(r.secsLeft !== undefined){
+      const secs = r.running ? Math.max(0, r.secsLeft - el) : r.secsLeft;
+      if(r.running && secs > 0){
+        if(PT.running && PT.startTime && !PT.follower) savePartialPomo(); // eigene Zeit sichern
+        PT.secs = secs; PT.running = true; PT.startTime = null; PT.follower = true;
+        PT.lastTick = new Date();
         if(PT.timer) clearInterval(PT.timer);
         PT.timer = setInterval(pomTick, 1000);
-        updatePomoDisplay();
-        notify('⏱ Pomodoro von anderem Gerät übernommen');
+      } else {
+        if(PT.running){
+          if(PT.startTime && !PT.follower) savePartialPomo(); // dieses Gerät hat gezählt → hier speichern
+          PT.running = false; PT.startTime = null; PT.lastTick = null;
+          if(PT.timer){ clearInterval(PT.timer); PT.timer = null; }
+        }
+        PT.secs = secs; PT.follower = false;
       }
+      PT.isBreak = !!r.isBreak;
+      if(r.blocks != null) PT.blocks = r.blocks;
+      if(r.subject) S.pomoSubject = r.subject;
     }
-  } catch(e){}
+    // ── Stoppuhr ──
+    if(r.swSecs !== undefined){
+      const ownRunning = window.SW_running && !window.SW_follower;
+      if(r.swRunning){
+        if(ownRunning) _origSwToggle();               // eigenes Segment speichern
+        window.SW_secs_base = r.swSecs;
+        window.SW_start = new Date(r.ts);
+        window.SW_secs = r.swSecs + el;
+        window.SW_running = true; window.SW_follower = true; window.SW_saved = false;
+        _swStartInterval();
+      } else {
+        if(window.SW_running){
+          if(ownRunning) _origSwToggle();              // dieses Gerät hat gezählt → hier speichern
+          if(window.SW_timer) clearInterval(window.SW_timer);
+          window.SW_running = false; window.SW_start = null;
+        }
+        window.SW_secs = r.swSecs; window.SW_secs_base = r.swSecs; window.SW_follower = false;
+      }
+      if(r.swSubj) window.SW_subjSel = r.swSubj;
+    }
+    if(r.mode) window.SW_mode = (r.mode === 'sw');
+  } finally { _pomoApplying = false; }
+  const a=document.activeElement;
+  const typing=a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT'||a.isContentEditable);
+  if(!typing) renderAll(); else updatePomoDisplay();
+  _gSchedulePoll();
 }
 
 // ── POLLING ──────────────────────────────────────────────────────
 function gistStartPolling(){
   if(_gistPollTimer) clearInterval(_gistPollTimer);
-  // Ein einziger Abruf alle 20s (Daten + Pomodoro), nur wenn die App sichtbar ist
-  _gistPollTimer = setInterval(()=>{ if(!document.hidden) gistPullNow(false); }, 20000);
   if(_gistPomoTimer){ clearInterval(_gistPomoTimer); _gistPomoTimer=null; }
+  _gistPollTimer = true;
+  _gSchedulePoll();
+}
+// Ein einziger Abruf (Daten + Timer), nur wenn die App sichtbar ist:
+// alle 8s solange ein Timer läuft, sonst alle 20s. Unveränderte Abrufe (304) zählen nicht zum GitHub-Limit.
+let _gPollTO=null;
+function _gSchedulePoll(){
+  if(!_gistPollTimer) return;
+  clearTimeout(_gPollTO);
+  _gPollTO=setTimeout(async()=>{
+    if(!document.hidden) await gistPullNow(false);
+    _gSchedulePoll();
+  }, _pomoTimerActive()?8000:20000);
 }
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden && _gistReady) gistPullNow(false); });
 
 function gistStopPolling(){
-  clearInterval(_gistPollTimer); _gistPollTimer=null;
+  clearTimeout(_gPollTO); _gistPollTimer=null;
   clearInterval(_gistPomoTimer); _gistPomoTimer=null;
 }
 
@@ -9747,16 +9804,37 @@ window.mpSave = function(s){
 };
 
 // Pomodoro-Start/Pause broadcasten
+function _pomoPushNow(){ if(_pomoApplying) return; gistPushPomo(); _gSchedulePoll(); }
 const _origPomStart = pomStart;
 window.pomStart = function(){
+  const wasRunning = PT.running;
+  if(!wasRunning) PT.follower = false;      // wer startet, zählt die Zeit
   _origPomStart();
-  setTimeout(gistPushPomo, 500);
+  _pomoPushNow();
 };
 const _origPomPause = pomPause;
 window.pomPause = function(){
-  _origPomPause();
-  gistPushPomo();
+  _origPomPause();                          // Folge-Gerät: startTime=null → speichert nichts
+  PT.follower = false;
+  _pomoPushNow();
 };
+const _origPomReset = pomReset;
+window.pomReset = function(){ _origPomReset(); PT.follower=false; _pomoPushNow(); };
+const _origPomSkip = pomSkip;
+window.pomSkip = function(){ _origPomSkip(); PT.follower=false; _pomoPushNow(); };
+const _origSwToggle = swToggle;
+window.swToggle = function(){
+  if(window.SW_running && window.SW_follower){
+    // Pause auf dem Folge-Gerät: keine Zeit hier speichern (das zählende Gerät speichert)
+    window.SW_start = new Date();
+  }
+  if(!window.SW_running) window.SW_follower = false;   // wer startet, zählt
+  _origSwToggle();
+  if(!window.SW_running) window.SW_follower = false;
+  _pomoPushNow();
+};
+const _origSwReset = swReset;
+window.swReset = function(){ _origSwReset(); window.SW_follower=false; _pomoPushNow(); };
 
 // ── Starten ───────────────────────────────────────────────────────
 window.addEventListener('load', ()=>{
