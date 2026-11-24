@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.33</title>
+<title>⚖️ Donna Jura v4.34</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -5247,7 +5247,7 @@ function setOeStep(key, i, si, val) {
 
 // ====== POMODORO ======
 let PT = {timer:null, secs:0, running:false, isBreak:false, blocks:0, activeTodoId:null, startTime:null};
-const MOTIV_SOUND = (()=>{ try { const a = new Audio('motivation.wav'); a.preload='auto'; return a; } catch(e){ return null; } })();
+const MOTIV_SOUND = (()=>{ try { const a = new Audio('motivation.wav?v=2'); a.preload='auto'; return a; } catch(e){ return null; } })();
 function playMotivation(){ if(!MOTIV_SOUND || S.motivSound===false) return; try{ MOTIV_SOUND.currentTime=0; const p=MOTIV_SOUND.play(); if(p&&p.catch)p.catch(()=>{}); }catch(e){} }
 function toggleMotivSound(){ S.motivSound = S.motivSound===false ? true : false; if(S.motivSound===false&&MOTIV_SOUND){try{MOTIV_SOUND.pause();}catch(e){}} save(); renderAll(); }
 
@@ -9130,13 +9130,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.33
+//  DONNA JURA — GIST SYNC  v4.34
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.33';
+const DJ_VERSION = '4.34';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
