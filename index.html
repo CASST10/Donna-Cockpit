@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.29</title>
+<title>⚖️ Donna Jura v4.30</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -9111,13 +9111,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.29
+//  DONNA JURA — GIST SYNC  v4.30
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.29';
+const DJ_VERSION = '4.30';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9920,17 +9920,43 @@ window.addEventListener('load',()=>setTimeout(()=>{
 },1200));
 
 // ── PWA Service Worker + Update-Detection ────────────────────────
+let _djSwReg=null;
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').then(reg => {
+    _djSwReg = reg;
     reg.addEventListener('updatefound', () => {
       const nw = reg.installing;
       nw.addEventListener('statechange', () => {
-        if(nw.state==='installed' && navigator.serviceWorker.controller){
-          showSwUpdateBanner();
-        }
+        if(nw.state==='installed' && navigator.serviceWorker.controller) djCheckVersion(true);
       });
     });
   }).catch(e=>console.log('SW error',e));
+}
+
+// ── Versions-Check: vergleicht die laufende Version mit der veröffentlichten ──
+// Läuft beim Start, alle 30 Min. und beim Zurückkehren in die App (max. alle 5 Min.).
+let _djLastVerCheck=0, _djNewVer=null;
+function _djVerNum(v){ const m=String(v||'').match(/(\d+)\.(\d+)/); return m?(+m[1])*1000+(+m[2]):0; }
+async function djCheckVersion(force){
+  if(!/^https?:/.test(location.protocol)) return;          // lokale Datei: kein Update möglich
+  if(!force && Date.now()-_djLastVerCheck < 5*60000) return;
+  _djLastVerCheck = Date.now();
+  try{
+    const txt = await (await fetch('sw.js?v='+Date.now(), {cache:'no-store'})).text();
+    const m = txt.match(/Service Worker v(\d+\.\d+)/);
+    if(m && _djVerNum(m[1]) > _djVerNum(DJ_VERSION)){
+      _djNewVer = m[1];
+      showSwUpdateBanner();
+    }
+  }catch(e){ /* offline */ }
+}
+window.addEventListener('load', ()=>setTimeout(()=>djCheckVersion(true), 4000));
+setInterval(()=>{ if(!document.hidden) djCheckVersion(true); }, 30*60000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) djCheckVersion(false); });
+async function djApplyUpdate(){
+  try{ if(_djSwReg) await _djSwReg.update(); }catch(e){}
+  try{ if(window.caches){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); } }catch(e){}
+  window.location.reload();
 }
 
 function showSwUpdateBanner(){
@@ -9940,8 +9966,8 @@ function showSwUpdateBanner(){
   b.style.cssText='position:fixed;bottom:50px;left:50%;transform:translateX(-50%);z-index:10001;background:#161b22;border:1px solid rgba(88,166,255,.4);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px;font-size:12px;color:#e6edf3;box-shadow:0 4px 20px rgba(0,0,0,.5);white-space:nowrap';
   b.innerHTML=`
     <span style="color:#58a6ff">🔄</span>
-    <span>Neue Version verfügbar</span>
-    <button onclick="window.location.reload(true)" style="padding:4px 12px;background:#58a6ff;border:none;border-radius:4px;color:#0d1117;font-weight:700;cursor:pointer;font-size:11px">Neu laden</button>
+    <span>Neue Version${_djNewVer?' v'+_djNewVer:''} verfügbar</span>
+    <button onclick="djApplyUpdate()" style="padding:4px 12px;background:#58a6ff;border:none;border-radius:4px;color:#0d1117;font-weight:700;cursor:pointer;font-size:11px">Neu laden</button>
     <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#8b949e;cursor:pointer">✕</button>`;
   document.body.appendChild(b);
 }
