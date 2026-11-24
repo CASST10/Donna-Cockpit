@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.31</title>
+<title>⚖️ Donna Jura v4.32</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -5247,6 +5247,9 @@ function setOeStep(key, i, si, val) {
 
 // ====== POMODORO ======
 let PT = {timer:null, secs:0, running:false, isBreak:false, blocks:0, activeTodoId:null, startTime:null};
+const MOTIV_SOUND = (()=>{ try { const a = new Audio('motivation.wav'); a.preload='auto'; return a; } catch(e){ return null; } })();
+function playMotivation(){ if(!MOTIV_SOUND || S.motivSound===false) return; try{ MOTIV_SOUND.currentTime=0; const p=MOTIV_SOUND.play(); if(p&&p.catch)p.catch(()=>{}); }catch(e){} }
+function toggleMotivSound(){ S.motivSound = S.motivSound===false ? true : false; if(S.motivSound===false&&MOTIV_SOUND){try{MOTIV_SOUND.pause();}catch(e){}} save(); renderAll(); }
 
 // Auswahl "Für was läuft die Zeit?" (normale Ansicht)
 function _swSelectionHTML(){
@@ -5343,6 +5346,13 @@ function renderPomodoro() {
   return `<div class="fade-in">
   <div id="pomo-page">
     <div class="pomo-glass">
+      <!-- MANTRA -->
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin:-14px 0 14px">
+        <span style="flex:0 0 18px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35))"></span>
+        <span style="font-size:9px;font-weight:600;letter-spacing:3.5px;text-transform:uppercase;color:rgba(255,255,255,.6);white-space:nowrap">smart · intelligent · magnetic</span>
+        <span style="flex:0 0 18px;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.35),transparent)"></span>
+        <button onclick="toggleMotivSound()" title="${S.motivSound===false?'Start-Sound einschalten':'Start-Sound ausschalten'}" style="font-size:10px;line-height:1;padding:2px 3px;border:none;background:none;cursor:pointer;opacity:${S.motivSound===false?'.35':'.6'}">${S.motivSound===false?'🔇':'🔊'}</button>
+      </div>
       <div class="pomo-label" style="cursor:${subj?'pointer':'default'}" onclick="${subj?`goToStage('${subj}')`:''}">
         ${(()=>{
           const node = PT.activeTodoId ? findNodeById(PT.activeTodoId, S.todos) : null;
@@ -5694,6 +5704,7 @@ function swToggle() {
     window.SW_saved = true;
   } else {
     // Resume — new segment starts now
+    playMotivation();
     window.SW_running = true;
     window.SW_secs_base = window.SW_secs || 0;
     window.SW_start = new Date();
@@ -5752,7 +5763,7 @@ if(!window._swStandbyListenerAdded) {
         startTime:`${String(start.getHours()).padStart(2,'0')}:${String(start.getMinutes()).padStart(2,'0')}`,
         endTime:`${String(end.getHours()).padStart(2,'0')}:${String(end.getMinutes()).padStart(2,'0')}`});
       S.totalMinutes=(S.totalMinutes||0)+segMins;
-      try{localStorage.setItem('donna_jura_v2',JSON.stringify(S));}catch(e){}
+      save();
     }
     window.SW_start = null;
     notify('⏸ Stoppuhr pausiert (Standby erkannt)');
@@ -5882,6 +5893,7 @@ function swSaveToExam() {
 
 function pomStart() {
   if(PT.running){ pomPause(); return; }
+  playMotivation();
   const focusSecs = (S.pomoFocusMins||45) * 60;
   if(PT.secs <= 0) PT.secs = focusSecs;
   PT.startTime = new Date();
@@ -5960,7 +5972,7 @@ function pomTick() {
       });
       S.totalMinutes = (S.totalMinutes||0) + minsElapsed;
       PT.startTime = null;
-      try { localStorage.setItem('donna_jura_v2', JSON.stringify(S)); } catch(e){}
+      save();
       showXP('🎉 ' + minsElapsed + 'min gespeichert!');
       updateTimebar(); // refresh "heute gelernt" display immediately
     } else {
@@ -6019,7 +6031,7 @@ function savePartialPomo() {
     S.totalMinutes = (S.totalMinutes||0) + rawElapsed;
   }
   PT.startTime = null;
-  try { localStorage.setItem('donna_jura_v2', JSON.stringify(S)); } catch(e){}
+  save();
   updateTimebar(); // refresh "heute gelernt" display immediately
 }
 
@@ -6056,7 +6068,7 @@ function saveSessionNow() {
   });
   S.totalMinutes = (S.totalMinutes||0) + elapsed;
   PT.startTime = new Date(endTime); // shift forward — pomTick won't double-count
-  try { localStorage.setItem('donna_jura_v2', JSON.stringify(S)); } catch(e){}
+  save();
   notify('💾 ' + elapsed + 'min gespeichert! Timer läuft weiter.');
   updatePomoDisplay();
   updateTimebar();
@@ -7558,8 +7570,14 @@ function updateTimebar(){
 }
 
 // ====== EXPORT / IMPORT / GIST ======
-function exportData(){const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`donna-jura-${ds(new Date())}.json`;a.click();}
-function importData(){const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{S=JSON.parse(ev.target.result);save();renderAll();notify('✅ Daten importiert!');}catch(err){notify('❌ Fehler beim Importieren');}};r.readAsText(f);};inp.click();}
+function syncPayload(){ return {...S, _mp: mpState()}; }
+function applySyncPayload(data){
+  if(data&&data._mp&&typeof data._mp==='object'){ const cur=mpState(); mpSave({...cur, done:data._mp.done||{}, moves:data._mp.moves||{}, doneAt:data._mp.doneAt||cur.doneAt||{}}); }
+  if(data){ delete data._mp; delete data._mod; }
+  return data;
+}
+function exportData(){const blob=new Blob([JSON.stringify(syncPayload(),null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`donna-jura-${ds(new Date())}.json`;a.click();}
+function importData(){const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{S=applySyncPayload(JSON.parse(ev.target.result));save();renderAll();notify('✅ Daten importiert!');}catch(err){notify('❌ Fehler beim Importieren');}};r.readAsText(f);};inp.click();}
 function openGistSettings(){
   document.getElementById('gist-modal').style.display='flex';
   const ti=document.getElementById('gist-token');
@@ -7587,7 +7605,7 @@ function addPauseEntry(key) {
     startTime:startEl?.value||null, endTime:endEl?.value||null });
   S.totalMinutes=(S.totalMinutes||0)+mins;
   window.addingPauseAfter=null;
-  try{localStorage.setItem('donna_jura_v2',JSON.stringify(S));}catch(e){}
+  save();
   notify(`✅ ${mins} Min eingetragen!`);
   renderAll(); setTimeout(()=>{const p=document.getElementById('manual-panel');if(p)p.style.display='flex';},30);
 }
@@ -7601,7 +7619,7 @@ function deletePomoEntries(indices) {
       S.pomodoros.splice(idx,1);
     }
   });
-  try{localStorage.setItem('donna_jura_v2',JSON.stringify(S));}catch(e){}
+  save();
   renderAll(); setTimeout(()=>{const p=document.getElementById('manual-panel');if(p)p.style.display='flex';},30);
 }
 
@@ -7762,7 +7780,7 @@ function confirmPauseEntry(date) {
   if(!S.pomodoros) S.pomodoros=[];
   S.pomodoros.push({date,subject:subj,mins,manual:true,startTime,endTime});
   S.totalMinutes=(S.totalMinutes||0)+mins;
-  try{localStorage.setItem('donna_jura_v2',JSON.stringify(S));}catch(e){}
+  save();
   document.getElementById('pause-edit-modal')?.remove();
   notify('✅ '+mins+'min '+SUBJECTS[subj].name+' erfasst!');
   renderAll();
@@ -7814,7 +7832,7 @@ function addManualTime(){
   if(minsEl)minsEl.value='';
   if(startEl)startEl.value='';
   if(endEl)endEl.value='';
-  try{localStorage.setItem('donna_jura_v2',JSON.stringify(S));}catch(e){}
+  save();
   notify(`✅ ${mins} Min (${startTime||'?'}–${endTime||'?'}) eingetragen!`);
   renderAll();
   setTimeout(()=>{const p=document.getElementById('manual-panel');if(p)p.style.display='flex';},50);
@@ -8986,7 +9004,9 @@ function renderMasterplan(){
           for(let i=0;i<7;i++){
             const d=new Date(weekMo); d.setDate(weekMo.getDate()+i);
             const dateStr=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-            const day=wk.days.find(x=>x.date===dateStr);
+            const day=wk.days.find(x=>x.date===dateStr)
+              || Object.values(MP_WEEKS).flatMap(w=>w.days).find(x=>x.date===dateStr)
+              || {date:dateStr,tasks:[]};
             const isWork=(i===0||i===3); // Mo=0, Do=3
             if(!day){
               cells.push(`<div style="background:${isWork?'rgba(255,150,50,.06)':'rgba(255,255,255,.02)'};border:1px solid ${isWork?'rgba(255,150,50,.2)':'rgba(255,255,255,.04)'};border-radius:6px;min-height:70px;padding:4px;opacity:.3">
@@ -9111,13 +9131,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.31
+//  DONNA JURA — GIST SYNC  v4.32
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.31';
+const DJ_VERSION = '4.32';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
