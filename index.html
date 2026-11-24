@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.28</title>
+<title>⚖️ Donna Jura v4.29</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -4246,6 +4246,7 @@ function _openTimerFor(o){
     switchTab('pomodoro'); return;
   }
   window.SW_mode = true;
+  window.SW_linked = true;   // Zuteilung kommt aus der Aufgabe → Auswahl ausblenden
   if(o.examType){
     window.SW_saveMode = 'exam';
     window.SW_examGroup = o.examGroup;
@@ -5247,50 +5248,9 @@ function setOeStep(key, i, si, val) {
 // ====== POMODORO ======
 let PT = {timer:null, secs:0, running:false, isBreak:false, blocks:0, activeTodoId:null, startTime:null};
 
-function renderPomodoro() {
-  const focusMins = S.pomoFocusMins||45;
-  const breakMins = S.pomoBreakMins||10;
-  const subj = S.pomoSubject||'';
-  const isStopwatch = window.SW_mode === true;
-  const swSecs = window.SW_secs || 0;
-  const swRunning = window.SW_running || false;
-  const displaySecs = PT.secs > 0 ? PT.secs : focusMins*60;
-  const mm = String(Math.floor(displaySecs/60)).padStart(2,'0');
-  const ss = String(displaySecs%60).padStart(2,'0');
-  const displayTime = `${mm}:${ss}`;
-  const swMm = String(Math.floor(swSecs/60)).padStart(2,'0');
-  const swSs = String(swSecs%60).padStart(2,'0');
-  const swH = Math.floor(swSecs/3600);
-  const swDisplay = swH>0 ? `${swH}:${String(Math.floor((swSecs%3600)/60)).padStart(2,'0')}:${String(swSecs%60).padStart(2,'0')}` : `${swMm}:${swSs}`;
-
-  // Time spent on selected subject today
-  const todayStr = ds(new Date());
-  const minsToday = (S.pomodoros||[]).filter(p=>p.date===todayStr).reduce((a,p)=>a+p.mins,0);
-  const minsSubjToday = subj ? (S.pomodoros||[]).filter(p=>p.subject===subj&&p.date===todayStr).reduce((a,p)=>a+p.mins,0) : 0;
-  const minsTotal = subj ? (S.pomodoros||[]).filter(p=>p.subject===subj).reduce((a,p)=>a+p.mins,0) : (S.totalMinutes||0);
-
-  return `<div class="fade-in">
-  <div id="pomo-page">
-    <div class="pomo-glass">
-      <div class="pomo-label" style="cursor:${subj?'pointer':'default'}" onclick="${subj?`goToStage('${subj}')`:''}">
-        ${(()=>{
-          const node = PT.activeTodoId ? findNodeById(PT.activeTodoId, S.todos) : null;
-          if(node) return node.text;
-          if(subj&&SUBJECTS[subj]) return SUBJECTS[subj].name;
-          return '🎯 Fokus';
-        })()}
-        ${subj ? '<span style="font-size:10px;opacity:.6;margin-left:4px">→ Stages</span>' : ''}
-      </div>
-
-      ${S.pomoGoal ? `<div style="font-size:12px;color:rgba(255,255,255,.65);margin-bottom:8px;font-style:italic">🎯 ${S.pomoGoal}</div>` : ''}
-
-      <!-- MODE TOGGLE -->
-      <div style="display:flex;gap:0;margin-bottom:10px;background:rgba(255,255,255,.06);border-radius:8px;padding:2px">
-        <button onclick="window.SW_mode=false;renderAll()" style="flex:1;padding:4px;font-size:11px;border:none;border-radius:6px;cursor:pointer;background:${!isStopwatch?'rgba(88,166,255,.25)':'transparent'};color:${!isStopwatch?'#fff':'rgba(255,255,255,.4)'}">⏱ Countdown</button>
-        <button onclick="window.SW_mode=true;renderAll()" style="flex:1;padding:4px;font-size:11px;border:none;border-radius:6px;cursor:pointer;background:${isStopwatch?'rgba(88,166,255,.25)':'transparent'};color:${isStopwatch?'#fff':'rgba(255,255,255,.4)'}">⏲ Stoppuhr</button>
-      </div>
-
-      ${isStopwatch ? `
+// Auswahl "Für was läuft die Zeit?" (normale Ansicht)
+function _swSelectionHTML(){
+  return `
       <!-- SW: Zuteilung VOR dem Start -->
       <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:8px;margin-bottom:10px">
         <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.55);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Für was läuft die Zeit?</div>
@@ -5343,6 +5303,74 @@ function renderPomodoro() {
         `}
       </div>
 
+`;
+}
+// Anzeige, wenn der Timer über eine Aufgabe geöffnet wurde
+function _swLinkedLabel(){
+  const esc=t=>String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  if((window.SW_saveMode||'pomo')==='exam'){
+    const grp=(window.SW_examGroup||'pr_gesamt')==='oeff_gesamt'?'Öff. Recht':'Privatrecht';
+    const typ=(window.SW_examType||'ueb')==='ueb'?'📝 Übung':'📋 Altprüfung';
+    return `${typ} · ${grp} · ${esc(window.SW_examSem)} · <b>${esc(window.SW_examName)}</b>`;
+  }
+  const node = PT.activeTodoId ? findNodeById(PT.activeTodoId, S.todos) : null;
+  const sj = window.SW_subjSel && SUBJECTS[window.SW_subjSel] ? SUBJECTS[window.SW_subjSel].name : '';
+  return `⏱ Lernzeit${sj?' · '+esc(sj):''}${node?' · <b>'+esc(node.text)+'</b>':''}`;
+}
+
+function renderPomodoro() {
+  const focusMins = S.pomoFocusMins||45;
+  const breakMins = S.pomoBreakMins||10;
+  const subj = S.pomoSubject||'';
+  const isStopwatch = window.SW_mode === true;
+  const swSecs = window.SW_secs || 0;
+  const swRunning = window.SW_running || false;
+  const displaySecs = PT.secs > 0 ? PT.secs : focusMins*60;
+  const mm = String(Math.floor(displaySecs/60)).padStart(2,'0');
+  const ss = String(displaySecs%60).padStart(2,'0');
+  const displayTime = `${mm}:${ss}`;
+  const swMm = String(Math.floor(swSecs/60)).padStart(2,'0');
+  const swSs = String(swSecs%60).padStart(2,'0');
+  const swH = Math.floor(swSecs/3600);
+  const swDisplay = swH>0 ? `${swH}:${String(Math.floor((swSecs%3600)/60)).padStart(2,'0')}:${String(swSecs%60).padStart(2,'0')}` : `${swMm}:${swSs}`;
+
+  // Time spent on selected subject today
+  const todayStr = ds(new Date());
+  const minsToday = (S.pomodoros||[]).filter(p=>p.date===todayStr).reduce((a,p)=>a+p.mins,0);
+  const minsSubjToday = subj ? (S.pomodoros||[]).filter(p=>p.subject===subj&&p.date===todayStr).reduce((a,p)=>a+p.mins,0) : 0;
+  const minsTotal = subj ? (S.pomodoros||[]).filter(p=>p.subject===subj).reduce((a,p)=>a+p.mins,0) : (S.totalMinutes||0);
+
+  return `<div class="fade-in">
+  <div id="pomo-page">
+    <div class="pomo-glass">
+      <div class="pomo-label" style="cursor:${subj?'pointer':'default'}" onclick="${subj?`goToStage('${subj}')`:''}">
+        ${(()=>{
+          const node = PT.activeTodoId ? findNodeById(PT.activeTodoId, S.todos) : null;
+          if(node) return node.text;
+          if(subj&&SUBJECTS[subj]) return SUBJECTS[subj].name;
+          return '🎯 Fokus';
+        })()}
+        ${subj ? '<span style="font-size:10px;opacity:.6;margin-left:4px">→ Stages</span>' : ''}
+      </div>
+
+      ${S.pomoGoal ? `<div style="font-size:12px;color:rgba(255,255,255,.65);margin-bottom:8px;font-style:italic">🎯 ${S.pomoGoal}</div>` : ''}
+
+      <!-- MODE TOGGLE -->
+      <div style="display:flex;gap:0;margin-bottom:10px;background:rgba(255,255,255,.06);border-radius:8px;padding:2px">
+        <button onclick="window.SW_mode=false;renderAll()" style="flex:1;padding:4px;font-size:11px;border:none;border-radius:6px;cursor:pointer;background:${!isStopwatch?'rgba(88,166,255,.25)':'transparent'};color:${!isStopwatch?'#fff':'rgba(255,255,255,.4)'}">⏱ Countdown</button>
+        <button onclick="window.SW_mode=true;renderAll()" style="flex:1;padding:4px;font-size:11px;border:none;border-radius:6px;cursor:pointer;background:${isStopwatch?'rgba(88,166,255,.25)':'transparent'};color:${isStopwatch?'#fff':'rgba(255,255,255,.4)'}">⏲ Stoppuhr</button>
+      </div>
+
+      ${isStopwatch ? `
+      ${window.SW_linked ? `
+      <!-- SW: über eine Aufgabe geöffnet → Zuteilung steht fest -->
+      <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:8px 10px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.5px">Zeit läuft für</div>
+          <div style="font-size:12px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_swLinkedLabel()}</div>
+        </div>
+        ${window.SW_running?'':`<button onclick="window.SW_linked=false;renderAll()" style="font-size:10px;padding:3px 8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:5px;color:rgba(255,255,255,.7);cursor:pointer">ändern</button>`}
+      </div>` : _swSelectionHTML()}
       <!-- SW: Anzeige laufende Zuteilung -->
       ${swSecs>0||swRunning?`<div style="text-align:center;font-size:10px;color:rgba(255,255,255,.4);margin-bottom:4px">
         ${(window.SW_saveMode||'pomo')==='pomo'
@@ -5700,6 +5728,7 @@ function swReset() {
   window.SW_start = null;
   window.SW_saved = false;
   window.SW_loggedSecs = 0;
+  window.SW_linked = false;
   renderAll();
 }
 
@@ -9082,13 +9111,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.28
+//  DONNA JURA — GIST SYNC  v4.29
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.28';
+const DJ_VERSION = '4.29';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
@@ -9400,7 +9429,7 @@ function _pomoSnap(){
     running:!!PT.running, secsLeft:PT.secs||0, isBreak:!!PT.isBreak, blocks:PT.blocks||0,
     subject:S.pomoSubject||'',
     swRunning:!!window.SW_running, swSecs:window.SW_secs||0, swSubj:window.SW_subjSel||'',
-    swSave:window.SW_saveMode||'pomo', swGroup:window.SW_examGroup||'', swType:window.SW_examType||'', swSem:window.SW_examSem||'', swName:window.SW_examName||'' };
+    swSave:window.SW_saveMode||'pomo', swGroup:window.SW_examGroup||'', swType:window.SW_examType||'', swSem:window.SW_examSem||'', swName:window.SW_examName||'', swLinked:!!window.SW_linked };
 }
 function _pomoTimerActive(){ return !!(PT.running||window.SW_running); }
 function _gApplyPomoJson(json){
@@ -9454,7 +9483,7 @@ function _gApplyPomoJson(json){
         window.SW_secs = r.swSecs; window.SW_secs_base = r.swSecs; window.SW_loggedSecs = r.swSecs; window.SW_follower = false;
       }
       if(r.swSubj) window.SW_subjSel = r.swSubj;
-      if(r.swSave){ window.SW_saveMode=r.swSave; window.SW_examGroup=r.swGroup||window.SW_examGroup; window.SW_examType=r.swType||window.SW_examType; window.SW_examSem=r.swSem||window.SW_examSem; window.SW_examName=r.swName; }
+      if(r.swSave){ window.SW_saveMode=r.swSave; window.SW_examGroup=r.swGroup||window.SW_examGroup; window.SW_examType=r.swType||window.SW_examType; window.SW_examSem=r.swSem||window.SW_examSem; window.SW_examName=r.swName; window.SW_linked=!!r.swLinked; }
     }
     if(r.mode) window.SW_mode = (r.mode === 'sw');
   } finally { _pomoApplying = false; }
