@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.32</title>
+<title>⚖️ Donna Jura v4.33</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -5345,14 +5345,13 @@ function renderPomodoro() {
 
   return `<div class="fade-in">
   <div id="pomo-page">
+    <!-- MANTRA (Hintergrund oben rechts) -->
+    <div style="position:absolute;top:14px;right:18px;z-index:2;display:flex;align-items:center;gap:8px;pointer-events:none">
+      <span style="width:18px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35))"></span>
+      <span style="font-size:9px;font-weight:600;letter-spacing:3.5px;text-transform:uppercase;color:rgba(255,255,255,.6);white-space:nowrap">smart · intelligent · magnetic</span>
+      <button onclick="toggleMotivSound()" title="${S.motivSound===false?'Start-Sound einschalten':'Start-Sound ausschalten'}" style="pointer-events:auto;font-size:10px;line-height:1;padding:2px 3px;border:none;background:none;cursor:pointer;opacity:${S.motivSound===false?'.35':'.6'}">${S.motivSound===false?'🔇':'🔊'}</button>
+    </div>
     <div class="pomo-glass">
-      <!-- MANTRA -->
-      <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin:-14px 0 14px">
-        <span style="flex:0 0 18px;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35))"></span>
-        <span style="font-size:9px;font-weight:600;letter-spacing:3.5px;text-transform:uppercase;color:rgba(255,255,255,.6);white-space:nowrap">smart · intelligent · magnetic</span>
-        <span style="flex:0 0 18px;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.35),transparent)"></span>
-        <button onclick="toggleMotivSound()" title="${S.motivSound===false?'Start-Sound einschalten':'Start-Sound ausschalten'}" style="font-size:10px;line-height:1;padding:2px 3px;border:none;background:none;cursor:pointer;opacity:${S.motivSound===false?'.35':'.6'}">${S.motivSound===false?'🔇':'🔊'}</button>
-      </div>
       <div class="pomo-label" style="cursor:${subj?'pointer':'default'}" onclick="${subj?`goToStage('${subj}')`:''}">
         ${(()=>{
           const node = PT.activeTodoId ? findNodeById(PT.activeTodoId, S.todos) : null;
@@ -9131,13 +9130,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.32
+//  DONNA JURA — GIST SYNC  v4.33
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.32';
+const DJ_VERSION = '4.33';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
