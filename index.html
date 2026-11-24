@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.34</title>
+<title>⚖️ Donna Jura v4.35</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -5247,9 +5247,37 @@ function setOeStep(key, i, si, val) {
 
 // ====== POMODORO ======
 let PT = {timer:null, secs:0, running:false, isBreak:false, blocks:0, activeTodoId:null, startTime:null};
-const MOTIV_SOUND = (()=>{ try { const a = new Audio('motivation.wav?v=2'); a.preload='auto'; return a; } catch(e){ return null; } })();
-function playMotivation(){ if(!MOTIV_SOUND || S.motivSound===false) return; try{ MOTIV_SOUND.currentTime=0; const p=MOTIV_SOUND.play(); if(p&&p.catch)p.catch(()=>{}); }catch(e){} }
-function toggleMotivSound(){ S.motivSound = S.motivSound===false ? true : false; if(S.motivSound===false&&MOTIV_SOUND){try{MOTIV_SOUND.pause();}catch(e){}} save(); renderAll(); }
+// Motivations-Sound über Web Audio (kein <audio>-Element: Safari/iOS schneidet sonst
+// den Anfang ab bzw. erzeugt Störgeräusche, wenn der Service Worker die Datei liefert)
+const MOTIV = {ctx:null, buf:null, src:null, loading:null};
+function _motivCtx(){ if(!MOTIV.ctx){ const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return null; try{ MOTIV.ctx=new AC(); }catch(e){ return null; } } return MOTIV.ctx; }
+function _motivLoad(){
+  if(MOTIV.buf) return Promise.resolve(MOTIV.buf);
+  if(MOTIV.loading) return MOTIV.loading;
+  const ctx=_motivCtx(); if(!ctx) return Promise.resolve(null);
+  MOTIV.loading = fetch('motivation.wav?v=3').then(r=>r.arrayBuffer())
+    .then(ab=>new Promise((res,rej)=>ctx.decodeAudioData(ab,res,rej)))
+    .then(b=>(MOTIV.buf=b))
+    .catch(()=>{ MOTIV.loading=null; return null; });
+  return MOTIV.loading;
+}
+// Bei der ersten Berührung Audio "aufwecken" und Sound vorladen → beim Start keine Verzögerung
+function _motivUnlock(){ if(S&&S.motivSound===false) return; const ctx=_motivCtx(); if(ctx&&ctx.state!=='running') ctx.resume().catch(()=>{}); _motivLoad(); }
+['pointerdown','touchstart','keydown'].forEach(ev=>document.addEventListener(ev,_motivUnlock,{capture:true,passive:true}));
+function stopMotivation(){ if(MOTIV.src){ try{ MOTIV.src.stop(); }catch(e){} MOTIV.src=null; } }
+function playMotivation(){
+  if(S.motivSound===false) return;
+  const ctx=_motivCtx(); if(!ctx) return;
+  stopMotivation();
+  const ready = ctx.state==='running' ? Promise.resolve() : ctx.resume();
+  Promise.all([ready, _motivLoad()]).then(([,buf])=>{
+    if(!buf || S.motivSound===false) return;
+    const src=ctx.createBufferSource(); src.buffer=buf; src.connect(ctx.destination);
+    src.onended=()=>{ if(MOTIV.src===src) MOTIV.src=null; };
+    MOTIV.src=src; src.start(ctx.currentTime+0.1);
+  }).catch(()=>{});
+}
+function toggleMotivSound(){ S.motivSound = S.motivSound===false ? true : false; if(S.motivSound===false) stopMotivation(); save(); renderAll(); }
 
 // Auswahl "Für was läuft die Zeit?" (normale Ansicht)
 function _swSelectionHTML(){
@@ -9130,13 +9158,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.34
+//  DONNA JURA — GIST SYNC  v4.35
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.34';
+const DJ_VERSION = '4.35';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
