@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>⚖️ Donna Jura v4.27</title>
+<title>⚖️ Donna Jura v4.28</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0d1117">
 <!-- kein externes QR-Script mehr — QR wird inline generiert -->
@@ -4238,29 +4238,55 @@ function changeTodoSubject(id) {
   if(pick!==null && SUBJECTS[pick]){ t.subject=pick; save(); renderAll(); }
 }
 
+// Öffnet den Timer (Stoppuhr) mit der jeweiligen Aufgabe bereits zugeteilt
+function _openTimerFor(o){
+  if(window.SW_running && (window.SW_secs||0)>0){
+    // Laufende Stoppuhr nicht umhängen
+    notify('⏱ Stoppuhr läuft bereits — erst beenden, dann neue Aufgabe');
+    switchTab('pomodoro'); return;
+  }
+  window.SW_mode = true;
+  if(o.examType){
+    window.SW_saveMode = 'exam';
+    window.SW_examGroup = o.examGroup;
+    window.SW_examType  = o.examType;
+    window.SW_examSem   = o.examSem;
+    window.SW_examName  = o.examName||'';
+  } else {
+    window.SW_saveMode = 'pomo';
+    if(o.subject && SUBJECTS[o.subject]) window.SW_subjSel = o.subject;
+  }
+  if(o.subject) S.pomoSubject = o.subject;
+  PT.activeTodoId = o.todoId||null;
+  S.pomoGoal = o.goal||'';
+  save();
+  switchTab('pomodoro');
+  if(typeof _pomoPushNow==='function') _pomoPushNow();
+}
+function _exKeyParts(key){ const i=key.indexOf('_'); return {grp:key.slice(0,i), sem:key.slice(i+1)}; }
+
 function startPomoForTodo(id) {
   const node = findNodeById(id, S.todos);
-  if(node && node.subject) { S.pomoSubject = node.subject; save(); }
-  PT.activeTodoId = id;
-  switchTab('pomodoro');
+  if(!node){ PT.activeTodoId=id; switchTab('pomodoro'); return; }
+  // Aufgabe gehört zu einer Übung? → direkt als Übung zuteilen
+  const m = (node._exRef||'').match(/^ex_((?:pr|oeff)_.+)_(\d+)$/);
+  if(m){
+    const key=m[1], idx=+m[2], ex=(S.exercises[key]||[])[idx], k=_exKeyParts(key);
+    if(ex){ _openTimerFor({todoId:id, subject:k.grp+'_gesamt', examGroup:k.grp+'_gesamt', examType:'ueb', examSem:k.sem, examName:ex.text}); return; }
+  }
+  _openTimerFor({todoId:id, subject:node.subject||S.pomoSubject});
 }
 
 function startPomoForExercise(key, i) {
   const ex = (S.exercises[key]||[])[i];
-  const grp = key.startsWith('oeff') ? 'oeff_gesamt' : 'pr_gesamt';
-  S.pomoSubject = grp;
-  S.pomoGoal = ex ? ex.text : '';
-  save();
-  switchTab('pomodoro');
+  const k = _exKeyParts(key);
+  _openTimerFor({subject:k.grp+'_gesamt', examGroup:k.grp+'_gesamt', examType:'ueb', examSem:k.sem, examName:ex?ex.text:'', goal:ex?ex.text:''});
 }
 
 function startPomoForExam(key, i) {
   const ex = (S.oldExams[key]||[])[i];
-  const grp = key.startsWith('oeff') ? 'oeff_gesamt' : 'pr_gesamt';
-  S.pomoSubject = grp;
-  S.pomoGoal = ex ? '📋 ' + ex.text : '';
-  save();
-  switchTab('pomodoro');
+  const k = _exKeyParts(key);
+  _openTimerFor({subject:k.grp+'_gesamt', examGroup:k.grp+'_gesamt', examType:'alt', examSem:k.sem, examName:ex?ex.text:'', goal:ex?'📋 '+ex.text:''});
 }
 </script>
 <script>
@@ -9056,13 +9082,13 @@ if(S.currentTab==='kalender') setTimeout(mpInjectCalChips, 100);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  DONNA JURA — GIST SYNC  v4.27
+//  DONNA JURA — GIST SYNC  v4.28
 //  Geräteübergreifende Synchronisation via GitHub Gist
 //  Kein Google-Konto nötig · QR-Pairing · Live-Pomodoro
 //  Token nur in localStorage – NIEMALS im Repo oder HTML!
 // ═══════════════════════════════════════════════════════════════
 
-const DJ_VERSION = '4.27';
+const DJ_VERSION = '4.28';
 
 // ═══════════════════════════════════════════════════════════════
 //  GIST SYNC ENGINE
